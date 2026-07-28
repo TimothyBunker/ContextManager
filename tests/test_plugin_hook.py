@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from tests.test_incremental import run_cli
-from tests.test_redundancy import ORIGINAL, PURE_RENAME
+from tests.test_redundancy import ORIGINAL, PURE_RENAME, UNRELATED
 
 HOOK = Path(__file__).resolve().parent.parent / "cm-plugin" / "scripts" / "gate_hook.py"
 
@@ -54,6 +54,43 @@ class TestGateHook(unittest.TestCase):
     def test_malformed_stdin_never_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:
             proc = run_hook("not json", cwd=tmp)
+        self.assertEqual(proc.returncode, 0)
+
+
+def pre_payload(tool: str, path: Path, **tool_input) -> dict:
+    return {"hook_event_name": "PreToolUse", "tool_name": tool,
+            "tool_input": {"file_path": str(path), **tool_input}}
+
+
+class TestPrecheck(unittest.TestCase):
+    def test_duplicate_write_denied_before_disk(self):
+        with repo(baseline=True) as root:
+            target = root / "b.py"
+            proc = run_hook(pre_payload("Write", target, content=PURE_RENAME))
+            existed = target.exists()
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("DENIED", proc.stderr)
+        self.assertIn("aggregate_metrics", proc.stderr)
+        self.assertFalse(existed)  # nothing ever reached disk
+
+    def test_novel_write_allowed(self):
+        with repo(baseline=True) as root:
+            proc = run_hook(pre_payload("Write", root / "b.py", content=UNRELATED))
+        self.assertEqual(proc.returncode, 0)
+
+    def test_edit_that_creates_clone_denied(self):
+        with repo(baseline=True) as root:
+            (root / "c.py").write_text(UNRELATED, encoding="utf-8")
+            run_cli("gate", str(root))  # fold c.py into the baseline
+            proc = run_hook(pre_payload("Edit", root / "c.py",
+                                        old_string=UNRELATED, new_string=PURE_RENAME))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("aggregate_metrics", proc.stderr)
+
+    def test_unmatchable_edit_allowed(self):
+        with repo(baseline=True) as root:
+            proc = run_hook(pre_payload("Edit", root / "a.py",
+                                        old_string="NOT PRESENT ANYWHERE", new_string="x"))
         self.assertEqual(proc.returncode, 0)
 
 

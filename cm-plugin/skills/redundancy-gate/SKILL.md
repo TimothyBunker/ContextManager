@@ -44,6 +44,14 @@ Each flagged unit shows:
 4. The baseline stays frozen while blocked. It advances automatically the next
    time the gate passes — no manual rebuild needed.
 
+## Pre-write denials
+
+If your Write/Edit was DENIED by the precheck, the file was NOT modified —
+there is nothing to clean up or revert. Do not retry the identical content.
+Read the cited unit, then either rewrite your change to call/extend it, or —
+if the similarity is intentional — `cm accept <fp> --reason "..."` and retry
+the write, which will then pass.
+
 ## Before writing a new helper
 
 `PROJECT.cm` at the repo root is grep-friendly. Before writing a utility,

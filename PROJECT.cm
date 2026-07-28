@@ -1,18 +1,19 @@
 ::cm 0.2
 ::project ContextManager
 ::root .
-::generated 2026-07-28T02:44:26+00:00
-::stats files=32 units=166 functions=144 raw_bytes=124580 info_bits=155840 structural_redundancy=0.305
+::generated 2026-07-28T02:56:21+00:00
+::stats files=33 units=179 functions=156 raw_bytes=131801 info_bits=163072 structural_redundancy=0.301
 
 ::file .claude-plugin/marketplace.json
 ::lang json
-::sha a6b7cfaeb738
-::lines 14
-::content 14
+::sha c58b3517b4b4
+::lines 15
+::content 15
 {
   "name": "cm-marketplace",
+  "description": "The cm context manager: compile your codebase into PROJECT.cm and gate agent writes against redundancy.",
   "owner": {
-    "name": "ContextManager"
+    "name": "TimothyBunker"
   },
   "plugins": [
     {
@@ -32,6 +33,30 @@
 ::content 3
 # cm's own ignore file. Defaults already exclude VCS dirs, caches,
 # binaries, and *.cm outputs; add project-specific exclusions here.
+
+::endfile
+
+::file .gitignore
+::lang text
+::sha ecca547615c9
+::lines 17
+::content 17
+# python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# cm machine-local state (mtimes, accept ledger is per-checkout derived from review)
+.cm/
+
+# editor / local claude settings
+.claude/settings.local.json
+.idea/
+.vscode/
 
 ::endfile
 
@@ -60,10 +85,10 @@ the codebase already contains.
 
 ::file README.md
 ::lang markdown
-::sha 2b85fd4fa1fe
-::lines 204
+::sha bdfca8dfbce0
+::lines 202
 ::doc cm — the context manager compiler
-::content 204
+::content 202
 # cm — the context manager compiler
 
 `cm` compiles a codebase into a single readable, structured artifact — **`PROJECT.cm`** —
@@ -97,36 +122,36 @@ cm drift <manifest>          [experimental] context-vs-PROJECT.cm divergence
 
 ## The agentic loop
 
-`cm init --hooks` installs three things: the compiled baseline (`PROJECT.cm`
-plus the `.cm/` cache), a protocol section in CLAUDE.md/AGENTS.md, and a
-Claude Code PostToolUse hook on Write/Edit. From then on every write triggers
-`cm gate`:
+With the plugin (or `cm init --hooks`), every agent write passes through cm
+twice:
 
-1. **Incremental recompile.** Unchanged files restore from the cache by
-   size+mtime (content hash as fallback); only edited files are re-analyzed.
-   The corpus the score runs against is never stale.
-2. **Score what changed.** Units whose fingerprint is new to their file are
-   scored against the whole current tree. Moved code and renamed locals keep
-   their fingerprints and are not re-flagged; comment-only edits pass through.
-3. **Commit or block.** No duplicates: the baseline advances automatically,
-   so PROJECT.cm is always current. Duplicates: the hook exits 2, feeding the
-   *where* (file@lines), the *why* (overlap blocks + anchor diff), and the
-   resolution back to the agent. The baseline stays frozen until the agent
-   reuses the existing unit or explicitly runs `cm accept <fp>`.
+1. **Before it lands (PreToolUse).** The proposed content — `Write.content`,
+   or the file with `Edit` strings applied — is scored *in memory*. Units
+   that duplicate existing code are **DENIED with the file untouched**: the
+   agent sees the *where* (file@lines), the *why* (overlap + anchor diff),
+   and revises instead of writing. Nothing to clean up, no tokens spent on
+   code that gets reverted.
+2. **After it lands (PostToolUse).** `cm gate` recompiles incrementally
+   (unchanged files restore from the cache by size+mtime, content hash as
+   fallback), scores anything the precheck could not model, and commits the
+   new baseline — so PROJECT.cm is always current. Unresolved duplicates
+   freeze the baseline until reused or accepted (`cm accept <fp> --reason`).
 
-Overlap-level findings are reported but never block. A warm gate on this repo
-runs in ~300 ms.
+Moved code and renamed locals keep their fingerprints and are not re-flagged;
+comment-only edits pass straight through. Overlap-level findings are reported
+but never block. A warm gate on this repo runs in ~300 ms.
 
 ## Claude Code plugin
 
 [`cm-plugin/`](cm-plugin/) packages the loop for distribution, and this repo
 doubles as a local plugin marketplace:
 
-- **hook** — PostToolUse on Write/Edit runs a safe wrapper
-  ([gate_hook.py](cm-plugin/scripts/gate_hook.py)): it walks up from the
-  edited file, gates only repos that opted in via `cm init` (a `.cm/` or
-  PROJECT.cm exists), and exits silently on any infrastructure failure — a
-  broken gate must never block unrelated work.
+- **hooks** — PreToolUse denies duplicate writes before they reach disk;
+  PostToolUse reconciles and commits after clean writes land. Both run
+  [gate_hook.py](cm-plugin/scripts/gate_hook.py), a fail-open shim around
+  `cm hook`: it gates only repos that opted in via `cm init` (a `.cm/` or
+  PROJECT.cm exists up the tree) and exits silently on any infrastructure
+  failure — a broken gate must never block unrelated work.
 - **skill** — `redundancy-gate` teaches the agent the judgment half: how to
   read a block (anchor diffs, algo-sim, overlaps), the resolution protocol
   (reuse > extend > `cm accept --reason`), and why dodging the gate by
@@ -262,8 +287,6 @@ DRIFT vs PROJECT.cm: 31/90 units in context, 0 stale, 59 missing
 - `cm annotate` — LLM-generated `::doc` lines for undocumented units.
 - Candidate pruning for very large corpora (fingerprint buckets, anchor
   prefilters before compression) so gate latency stays flat as repos grow.
-- A PreToolUse variant of the gate that scores content *before* it reaches
-  disk (today's PostToolUse hook flags immediately after the write lands).
 - Retrieval (`cm get`/`cm find`, MCP slices) — deferred by design for now;
   the current product is the gate, not context serving.
 - Tree-sitter extractors; per-language keyword tables beyond py/js/ts.
@@ -272,12 +295,12 @@ DRIFT vs PROJECT.cm: 31/90 units in context, 0 stale, 59 missing
 
 ::file cm-plugin/.claude-plugin/plugin.json
 ::lang json
-::sha dfa8f6a40592
+::sha ac71642518ab
 ::lines 9
 ::content 9
 {
   "name": "cm",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Redundancy gate for agent writes: incremental codebase compiler (PROJECT.cm) plus a write interlock that blocks duplicate code with evidence — where it already lives, why it matches, how to resolve.",
   "author": {
     "name": "ContextManager"
@@ -354,11 +377,22 @@ Run `cm status` in the repository root with the Bash tool.
 
 ::file cm-plugin/hooks/hooks.json
 ::lang json
-::sha f30e5478ac44
-::lines 16
-::content 16
+::sha babaa7f4cc79
+::lines 27
+::content 27
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/gate_hook.py\""
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
@@ -377,65 +411,40 @@ Run `cm status` in the repository root with the Bash tool.
 
 ::file cm-plugin/scripts/gate_hook.py
 ::lang python
-::sha c8a282a60827
-::lines 62
-::doc cm write-gate hook for Claude Code (PostToolUse on Write/Edit).
-::imports json, os, shutil, subprocess, sys
-::unit function find_cm_root @19-27 #94143d6c
-::sig find_cm_root(start: str) -> str | None
-::algo cfg==,while{if{ret},=,if{ret},=} an===:1,abspath:1,dirname:1,isdir:1,isfile:1,join:2,or:1,path:6,|b:1
-::unit function main @30-57 #7cd9bda7
+::sha a31836fab786
+::lines 40
+::doc cm hook shim for Claude Code: pipes the hook JSON to `cm hook`.
+::imports os, shutil, subprocess, sys
+::unit function main @18-35 #8aee4d8a
 ::sig main() -> int
-::algo cfg=try{=|=},=,=,=,=,if{ret},=,=,try{=|ret},if{if{call},call,ret},ret an===:1,TimeoutExpired:1,dirname:1,environ:1,executable:1,find_cm_root:1,get:4,getcwd:1,hasattr:1,is:1,load:1,or:4,path:1,reconfigure:1,returncode:1,run:1,stderr:4,stdin:1,stdout:1,which:1,write:1
-::content 62
+::algo cfg==,=,=,try{=|ret},if{if{call},call,ret},ret an===:1,TimeoutExpired:1,environ:1,executable:1,hasattr:1,or:1,read:1,reconfigure:1,returncode:1,run:1,stderr:4,stdin:1,stdout:1,which:1,write:1
+::content 40
 #!/usr/bin/env python3
-"""cm write-gate hook for Claude Code (PostToolUse on Write/Edit).
+"""cm hook shim for Claude Code: pipes the hook JSON to `cm hook`.
 
-Safe to install globally: it gates only repos that opted in (a `.cm/` baseline
-or PROJECT.cm exists somewhere above the edited file), and it exits silently
-when cm isn't installed or anything unexpected happens — a broken gate must
+All real logic lives in the cm package (root discovery, pre-write denial,
+post-write gate). This shim guarantees fail-open behavior only: if cm is not
+installed, times out, or crashes, the write proceeds — a broken gate must
 never block unrelated work.
 
-Exit codes: 0 = pass/no-op, 2 = blocked (cm's findings are relayed on stderr,
-which Claude Code feeds back to the model).
+Exit codes: 0 = allow/no-op, 2 = deny or block (cm's findings are relayed on
+stderr, which Claude Code feeds back to the model).
 """
-import json
 import os
 import shutil
 import subprocess
 import sys
 
 
-def find_cm_root(start: str) -> str | None:
-    d = os.path.abspath(start)
-    while True:
-        if os.path.isdir(os.path.join(d, ".cm")) or os.path.isfile(os.path.join(d, "PROJECT.cm")):
-            return d
-        parent = os.path.dirname(d)
-        if parent == d:
-            return None
-        d = parent
-
-
 def main() -> int:
-    try:
-        payload = json.load(sys.stdin)
-    except (ValueError, OSError):
-        payload = {}
-    tool_input = payload.get("tool_input") or {}
-    target = tool_input.get("file_path") or tool_input.get("notebook_path")
-    start = os.path.dirname(target) if target else (payload.get("cwd") or os.getcwd())
-    root = find_cm_root(start)
-    if root is None:
-        return 0  # repo has not opted in to cm
-
+    stdin = sys.stdin.read()
     cm = shutil.which("cm")
-    cmd = [cm, "gate", root, "--hook"] if cm else [sys.executable, "-m", "cm", "gate", root, "--hook"]
+    cmd = [cm, "hook"] if cm else [sys.executable, "-m", "cm", "hook"]
     try:
         # pin both sides to UTF-8: Windows pipes otherwise default to the ANSI
         # codepage and non-ASCII in findings would crash the decode
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
-                              encoding="utf-8", errors="replace",
+        proc = subprocess.run(cmd, input=stdin, capture_output=True, text=True,
+                              timeout=120, encoding="utf-8", errors="replace",
                               env={**os.environ, "PYTHONIOENCODING": "utf-8"})
     except (OSError, subprocess.TimeoutExpired):
         return 0
@@ -444,7 +453,7 @@ def main() -> int:
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.write(proc.stderr or proc.stdout)
         return 2
-    return 0  # pass, or cm missing/crashed — never block on infrastructure failure
+    return 0
 
 
 if __name__ == "__main__":
@@ -454,10 +463,10 @@ if __name__ == "__main__":
 
 ::file cm-plugin/skills/redundancy-gate/SKILL.md
 ::lang markdown
-::sha 15390ade7832
-::lines 64
+::sha a72b3acfbdcf
+::lines 72
 ::doc cm — resolving the redundancy gate
-::content 64
+::content 72
 ---
 name: redundancy-gate
 description: Resolve cm redundancy-gate blocks and manage codebase redundancy. Use when a write is blocked with "cm gate BLOCKED" or DUPLICATE findings, when deciding whether to reuse existing code versus accept intentional similarity, or when working with PROJECT.cm, unit fingerprints, ::algo skeletons, or the cm commands (gate, accept, audit, status, check).
@@ -504,6 +513,14 @@ Each flagged unit shows:
 4. The baseline stays frozen while blocked. It advances automatically the next
    time the gate passes — no manual rebuild needed.
 
+## Pre-write denials
+
+If your Write/Edit was DENIED by the precheck, the file was NOT modified —
+there is nothing to clean up or revert. Do not retry the identical content.
+Read the cited unit, then either rewrite your change to call/extend it, or —
+if the similarity is intentional — `cm accept <fp> --reason "..."` and retry
+the write, which will then pass.
+
 ## Before writing a new helper
 
 `PROJECT.cm` at the repo root is grep-friendly. Before writing a utility,
@@ -526,13 +543,13 @@ cm build --full           force a full recompile of PROJECT.cm
 
 ::file cm/__init__.py
 ::lang python
-::sha 227263aa3f44
+::sha b8ff0610d067
 ::lines 4
 ::doc cm — compile a codebase into a context management artifact (PROJECT.cm).
 ::content 4
 """cm — compile a codebase into a context management artifact (PROJECT.cm)."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 ::endfile
 
@@ -551,43 +568,47 @@ if __name__ == "__main__":
 
 ::file cm/cache.py
 ::lang python
-::sha 7c1d4bdc211e
-::lines 124
+::sha 7cfe6d5d1497
+::lines 135
 ::doc Incremental compile state: the .cm/ directory.
 ::imports __future__, gzip, json, model, os, pathlib
 ::unit function cm_dir @24-25 #c723586a
 ::sig cm_dir(root: Path) -> Path
 ::algo cfg=ret an=/:1
-::unit function _unit_to_dict @28-34 #4512277c
+::unit function find_root @28-36 #c2b5d784
+::sig find_root(start: Path) -> Path | None
+::doc Walk up from `start` to the nearest cm-initialized directory.
+::algo cfg==,while{if{ret},if{ret},=} an=/:2,==:1,Path:1,is_dir:1,is_file:1,or:1,parent:2,resolve:1,|b:1
+::unit function _unit_to_dict @39-45 #4512277c
 ::sig _unit_to_dict(u: Unit) -> dict
 ::algo cfg=ret an=algo:1,bound:1,doc:1,end:1,fp:1,kind:1,name:1,norm:1,qualname:1,scoreable:1,signature:1,sorted:1,start:1,trivial:1
-::unit function _unit_from_dict @37-45 #252c1fbe
+::unit function _unit_from_dict @48-56 #252c1fbe
 ::sig _unit_from_dict(d: dict, lines: list[str], path: str, lang: str) -> Unit
 ::algo cfg=ret an=-:1,Unit:1,frozenset:1,get:1,join:1
-::unit function entry_from_record @48-54 #39df03a6
+::unit function entry_from_record @59-65 #39df03a6
 ::sig entry_from_record(rec: FileRecord, mtime_ns: int) -> dict
 ::algo cfg=ret an=_unit_to_dict:1,doc:1,eol:1,imports:1,lang:1,lines:1,sha:1,size:1,text:1,units:1
-::unit function record_from_entry @57-65 #a49394b5
+::unit function record_from_entry @68-76 #a49394b5
 ::sig record_from_entry(path: str, entry: dict, abspath: str) -> FileRecord
 ::algo cfg==,=,=,ret an=FileRecord:1,_unit_from_dict:1,lang:1,list:1,split:1,text:1,units:1
-::unit function attach_cached_units @68-73 #07ab751f
+::unit function attach_cached_units @79-84 #07ab751f
 ::sig attach_cached_units(rec: FileRecord, entry: dict) -> None
 ::doc Reuse analyzed units for a file whose content hash is unchanged.
 ::algo cfg==,=,=,= an=_unit_from_dict:1,doc:1,imports:1,lang:1,list:1,path:1,split:1,text:1,units:1
-::unit function load_cache @76-87 #34d14381
+::unit function load_cache @87-98 #34d14381
 ::sig load_cache(root: Path) -> dict
 ::doc path -> entry mapping, or {} when absent/stale/incompatible.
 ::algo cfg==,if{ret},try{=,if{ret},ret|ret} an=!=:1,/:1,cm_dir:1,decompress:1,get:2,is_file:1,loads:1,not:1,read_bytes:1
-::unit function save_cache @90-102 #d414cc54
+::unit function save_cache @101-113 #d414cc54
 ::sig save_cache(root: Path, result: ScanResult) -> None
 ::algo cfg==,=,=,call,=,call,call an=+:1,/:2,cm_dir:1,compress:1,dumps:1,encode:1,entry_from_record:1,get:1,mkdir:1,mtimes:1,path:2,records:1,replace:1,write_bytes:1
-::unit function load_accepted @105-114 #0646b626
+::unit function load_accepted @116-125 #0646b626
 ::sig load_accepted(root: Path) -> set[str]
 ::algo cfg==,if{ret},=,for{=,if{call}},ret an=/:1,add:1,cm_dir:1,is_file:1,not:1,read_text:1,set:2,split:1,splitlines:1,strip:1
-::unit function add_accepted @117-123 #536c0827
+::unit function add_accepted @128-134 #536c0827
 ::sig add_accepted(root: Path, fps: list[str], reason: str='') -> None
 ::algo cfg==,call,=,with{for{call}} an=+:2,/:1,cm_dir:1,mkdir:1,open:1,write:1
-::content 124
+::content 135
 """Incremental compile state: the .cm/ directory.
 
 Holds the compile cache (per-file text, hashes, mtimes, and fully-analyzed
@@ -613,6 +634,17 @@ _ACCEPTED = "accepted"
 
 def cm_dir(root: Path) -> Path:
     return root / CM_DIR
+
+
+def find_root(start: Path) -> Path | None:
+    """Walk up from `start` to the nearest cm-initialized directory."""
+    d = Path(start).resolve()
+    while True:
+        if (d / CM_DIR).is_dir() or (d / "PROJECT.cm").is_file():
+            return d
+        if d.parent == d:
+            return None
+        d = d.parent
 
 
 def _unit_to_dict(u: Unit) -> dict:
@@ -716,65 +748,87 @@ def add_accepted(root: Path, fps: list[str], reason: str = "") -> None:
 
 ::file cm/cli.py
 ::lang python
-::sha ddc6c068a035
-::lines 500
+::sha 12732fc2b605
+::lines 619
 ::doc cm command line: build / check / audit / drift.
-::imports __future__, argparse, cache, cmfile, datetime, ignore, json, lzma, model, normalize, pathlib, redundancy, scan, shutil, sys
-::unit function _corpus_stats @24-40 #5f0e282e
+::imports __future__, argparse, cache, cmfile, datetime, extract, ignore, json, lzma, model, normalize, pathlib, redundancy, scan, shutil, sys
+::unit function _corpus_stats @25-41 #5f0e282e
 ::sig _corpus_stats(records, light: bool=False) -> dict
 ::algo cfg==,=,if{ret},=,=,=,=,=,call,ret an=*:2,-:3,/:1,compress:2,encode:2,in:1,join:1,kind:1,lang:1,len:4,max:3,norm_source:1,round:1,size:1,sum:3,text:1,units:1,update:1
-::unit function _utc_now @43-45 #ebdd6a69
+::unit function _utc_now @44-46 #ebdd6a69
 ::sig _utc_now() -> str
 ::algo cfg=imp,ret an=isoformat:1,now:1,utc:1
-::unit function _commit @48-56 #e5226df9
+::unit function _commit @49-57 #e5226df9
 ::sig _commit(root: Path, result, stats: dict, no_content: bool=False, output: str | None=None) -> Path
 ::doc Write PROJECT.cm and the cache: the new accepted baseline.
 ::algo cfg==,=,=,call,call,ret an=/:1,Path:1,_utc_now:1,emit:1,name:1,not:1,records:1,save_cache:1,write_text:1,|b:1
-::unit function cmd_build @59-73 #bcd9976a
+::unit function cmd_build @60-74 #bcd9976a
 ::sig cmd_build(args) -> int
 ::algo cfg==,=,=,=,=,call,call,call,call,for{if{call}},ret an=+:1,>:1,Path:1,_commit:1,_corpus_stats:1,cache_hits:1,changed:1,full:1,join:1,len:2,load_cache:1,no_content:1,output:1,path:1,print:5,records:1,resolve:1,scan_tree:1,skipped_binary:1,skipped_large:1
-::unit function cmd_status @76-94 #e7268336
+::unit function cmd_status @77-95 #e7268336
 ::sig cmd_status(args) -> int
 ::algo cfg==,=,if{call,ret},=,=,=,=,=,=,call,for{for{call}},call,ret an=+:1,-:1,/:1,Path:1,bool:1,changed:2,in:1,is_file:1,len:4,load_cache:1,not:2,not-in:1,or:3,path:2,print:4,records:1,resolve:1,scan_tree:1,set:1,sorted:1
-::unit function _print_unit_report @97-120 #6c099e75
+::unit function _print_unit_report @98-121 #6c099e75
 ::sig _print_unit_report(rep: dict, warn: float, fail: float, out=None) -> None
 ::algo cfg==,=,call,if{ret},call,for{=,=,=,call,=,if{=,=,call},for{call}} an=get:3,is-not:1,join:2,or:4,print:5,stdout:1,upper:1,verdict:1
-::unit function _summarize @123-127 #08cf7fda
+::unit function _summarize @124-128 #08cf7fda
 ::sig _summarize(reports: list[dict], warn: float, fail: float) -> dict
 ::algo cfg==,for{+=},ret an=verdict:1
-::unit function cmd_check @130-170 #775ab3e3
+::unit function cmd_check @131-171 #775ab3e3
 ::sig cmd_check(args) -> int
 ::algo cfg==,=,for{if{call,ret}},=,=,=,for{=,try{=|=},=,if{call,ret},call},=,=,=,if{call|call,for{call},call},ret an=!=:1,-:1,Path:4,_print_unit_report:1,_summarize:1,all_units:1,as_posix:2,dumps:1,extend:1,fail:3,is:1,is_file:1,join:1,json:1,kind:1,len:3,load_cache:1,print:5,resolve:3,sorted:2,stderr:2,str:2,targets:4,warn:3
-::unit function cmd_audit @173-196 #a2b15ef6
+::unit function cmd_audit @174-197 #a2b15ef6
 ::sig cmd_audit(args) -> int
 ::algo cfg==,=,=,=,=,call,=,if{call,ret},call,if{call},for{call},call,ret an=!=:1,-:1,Path:1,_print_unit_report:1,_summarize:1,all_units:1,and:1,dumps:1,fail:3,json:1,len:2,limit:1,load_cache:1,not:2,path:1,print:4,records:1,resolve:1,scan_tree:1,score_targets:1,sort:1,str:1,top:1,warn:4
-::unit function _changed_units @199-212 #fb750821
+::unit function _changed_units @200-213 #fb750821
 ::sig _changed_units(result, cache: dict) -> list[Unit]
 ::doc Scoreable units that are new or modified relative to the cached baseline.
 ::algo cfg==,for{=,if{cnt},=,call},ret an===:1,and:2,extend:1,fp:1,get:1,is-not:1,not-in:1,path:1,records:1,scoreable:1,set:1,sha:1,units:1
-::unit function cmd_gate @215-268 #e0690191
-::sig cmd_gate(args) -> int
+::unit function _screen @216-227 #6bb2892c
+::sig _screen(reports, accepted, warn, fail)
+::doc Split reports into (blocking duplicates, non-blocking overlaps).
+::algo cfg==,for{if{cnt},=,if{call|if{call}}},ret an===:2,append:2,in:1,or:1,verdict:1
+::unit function _print_block @230-238 #63a57cc4
+::sig _print_block(headline, footer, blocking, warn, fail, out)
+::algo cfg=call,for{call},call,for{call},call an=-:1,_print_unit_report:1,print:4,sorted:1
+::unit function _gate_run @241-280 #c22abff9
+::sig _gate_run(root: Path, warn: float, fail: float, top: int, hook: bool) -> int
 ::doc The write interlock: recompile incrementally, score what changed,
-::algo cfg==,=,=,=,=,if{call,if{call},ret},=,if{call,if{call},ret},=,=,=,for{if{cnt},=,if{call|if{call}}},if{call,for{call},call,for{call},call,ret},call,if{call,for{call}},ret an=-:1,==:2,>:1,Path:1,_changed_units:1,_commit:3,_corpus_stats:3,_print_unit_report:2,all_units:2,append:2,fail:3,hook:5,in:1,len:5,load_accepted:1,load_cache:1,not:5,or:1,path:1,print:7,records:5,resolve:1,scan_tree:1,warn:3
-::unit function cmd_accept @271-281 #b89ba7ab
+::algo cfg==,=,=,=,if{call,if{call},ret},=,if{call,if{call},ret},=,=,if{call,ret},call,if{call,for{call}},ret an=>:1,_changed_units:1,_commit:3,_corpus_stats:3,_print_block:1,_print_unit_report:1,_screen:1,all_units:2,len:5,load_accepted:1,load_cache:1,not:5,print:3,records:5,scan_tree:1,score_targets:1,size:1,stderr:1,stdout:1,sum:1
+::unit function cmd_gate @283-284 #f4ad703d
+::sig cmd_gate(args) -> int
+::algo cfg=ret an=Path:1,_gate_run:1,fail:1,hook:1,path:1,resolve:1,top:1,warn:1
+::unit function _proposed_content @287-309 #7de0d58b
+::sig _proposed_content(path: Path, tool: str, tool_input: dict) -> str | None
+::doc Model the post-tool content of a Write/Edit. None = cannot model: allow,
+::algo cfg=if{=,ret},if{try{=|ret},=,for{=,=,if{ret},=,if{ret},=},ret},ret an===:2,>:1,and:1,count:1,get:6,in:1,isinstance:1,not:2,or:4,read_text:1,replace:5,|b:1
+::unit function _precheck @312-349 #3f043a1a
+::sig _precheck(root: Path, abspath: Path, proposed: str, warn: float, fail: float, top: int) -> int
+::doc Score a proposed write before it reaches disk. 0 = allow, 2 = deny.
+::algo cfg==,if{ret},try{=|ret},if{ret},=,if{ret},=,if{ret},call,=,=,=,if{ret},=,=,+=,=,=,if{call,ret},ret an=!=:1,>:1,_print_block:1,_screen:1,and:1,as_posix:1,encode:1,extract_units:1,fp:1,get:1,ignored:1,is:1,len:2,load:1,load_accepted:1,load_cache:1,not:2,not-in:1,path:1,record_from_bytes:1,records:1,relative_to:1,scoreable:3,units:3
+::unit function cmd_hook @352-377 #35eccb54
+::sig cmd_hook(args) -> int
+::doc Claude Code hook entry: reads the hook JSON on stdin.
+::algo cfg=try{=|ret},if{ret},=,=,=,=,if{ret},if{if{ret},=,if{ret},ret},ret an===:1,Path:4,_gate_run:1,_precheck:1,_proposed_content:1,fail:2,find_root:1,get:6,is:2,isinstance:1,loads:1,not:2,or:4,parent:1,read:1,stdin:1,top:2,warn:2
+::unit function cmd_accept @380-390 #b89ba7ab
 ::sig cmd_accept(args) -> int
 ::algo cfg==,=,for{if{call,ret},call},call,call,ret an=!=:1,Path:1,add_accepted:1,any:1,append:1,fps:1,len:2,not-in:1,or:1,print:2,reason:1,resolve:1,root:1,stderr:1
-::unit function _write_protocol @302-316 #5582a96c
+::unit function _write_protocol @413-427 #5582a96c
 ::sig _write_protocol(root: Path) -> str
 ::algo cfg=for{=,if{=,if{=,=,=|=},call,ret}},call,ret an=+:6,/:2,and:1,in:2,is_file:1,partition:2,read_text:1,rstrip:1,write_text:2
-::unit function _install_hook @319-336 #9e2ba13a
+::unit function _install_hook @430-447 #9e2ba13a
 ::sig _install_hook(root: Path) -> str
 ::algo cfg==,=,if{try{=|ret}},=,for{if{ret}},=,call,call,call,ret an=+:1,/:2,any:1,append:1,dumps:1,executable:1,get:2,in:1,is_file:1,loads:1,mkdir:1,parent:1,read_text:1,setdefault:2,which:1,write_text:1
-::unit function cmd_init @339-364 #0d116ae2
+::unit function cmd_init @450-475 #0d116ae2
 ::sig cmd_init(args) -> int
 ::algo cfg==,=,=,if{call,call},=,=,call,call,call,if{call|call},if{call},call,for{call},ret an=/:1,Path:1,_commit:1,_corpus_stats:1,_install_hook:1,_write_protocol:1,append:6,hooks:1,is_file:1,not:2,path:1,print:2,records:1,resolve:1,scan_tree:1,which:1,write_text:1
-::unit function cmd_drift @367-429 #5df32d09
+::unit function cmd_drift @478-540 #5df32d09
 ::sig cmd_drift(args) -> int
 ::algo cfg==,if{call,ret},=,if{=|=},=,=,for{if{=,=,=|if{call|call}}},=,=,for{=,for{=,=,if{=|if{=}},if{call,cnt},if{=,=|=},+=,call}},=,if{call,ret},call,call,=,for{call},ret an=+:4,-:3,/:2,==:4,Path:2,add:2,and:2,append:2,cm:2,content:2,end:2,fp:2,in:6,is-not:2,len:10,manifest:2,not:2,or:2,partition:2,path:2,print:5,read_text:2,round:2,set:2
-::unit function main @432-499 #c0bf363a
+::unit function main @543-618 #7f042ec9
 ::sig main(argv=None) -> int
-::algo cfg==,call,=,=,call,call,call,call,call,=,call,call,=,call,call,call,call,call,call,=,call,call,call,call,=,call,call,call,=,call,call,call,call,call,call,call,=,call,call,call,call,call,call,call,=,call,call,call,call,=,ret an=ArgumentParser:1,add_argument:31,add_parser:8,add_subparsers:1,fn:1,parse_args:1,set_defaults:8
-::content 500
+::algo cfg==,call,=,=,call,call,call,call,call,=,call,call,=,call,call,call,call,call,call,=,call,call,call,call,=,call,call,call,call,=,call,call,call,=,call,call,call,call,call,call,call,=,call,call,call,call,call,call,call,=,call,call,call,call,=,ret an=ArgumentParser:1,add_argument:34,add_parser:9,add_subparsers:1,fn:1,parse_args:1,set_defaults:9
+::content 619
 """cm command line: build / check / audit / drift."""
 from __future__ import annotations
 
@@ -786,13 +840,14 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .cache import add_accepted, load_accepted, load_cache, save_cache
+from .cache import add_accepted, find_root, load_accepted, load_cache, save_cache
 from .cmfile import emit, parse
+from .extract import extract_units
 from .ignore import IgnoreRules
 from .model import Unit
 from .normalize import norm_source
 from .redundancy import score_targets, standalone_bits, verdict
-from .scan import load_file, scan_tree
+from .scan import MAX_FILE_BYTES, load_file, record_from_bytes, scan_tree
 
 _LZMA_EMPTY = len(lzma.compress(b""))
 _STATS_FULL_MAX = 4_000_000  # above this many raw bytes, gate skips corpus compression
@@ -989,18 +1044,42 @@ def _changed_units(result, cache: dict) -> list[Unit]:
     return targets
 
 
-def cmd_gate(args) -> int:
+def _screen(reports, accepted, warn, fail):
+    """Split reports into (blocking duplicates, non-blocking overlaps)."""
+    blocking, overlaps = [], []
+    for rep in reports:
+        if rep["trivial"] or rep["fp"] in accepted:
+            continue
+        v = verdict(rep, warn, fail)
+        if v == "duplicate":
+            blocking.append(rep)
+        elif v == "overlap":
+            overlaps.append(rep)
+    return blocking, overlaps
+
+
+def _print_block(headline, footer, blocking, warn, fail, out):
+    print(headline, file=out)
+    for rep in sorted(blocking, key=lambda r: -r["wasted_bits"]):
+        _print_unit_report(rep, warn, fail, out=out)
+    print("Investigate each match above (read the cited unit). Then either "
+          "reuse/extend it, or — if the similarity is intentional — run:", file=out)
+    for rep in blocking:
+        print(f'  cm accept {rep["fp"]} --reason "..."    # {rep["unit"]}', file=out)
+    print(footer, file=out)
+
+
+def _gate_run(root: Path, warn: float, fail: float, top: int, hook: bool) -> int:
     """The write interlock: recompile incrementally, score what changed,
     block (exit nonzero) on unreviewed duplicates, else commit the new baseline."""
-    root = Path(args.path).resolve()
-    out = sys.stderr if args.hook else sys.stdout
+    out = sys.stderr if hook else sys.stdout
     cache = load_cache(root)
     result = scan_tree(root, cache=cache)
     light = sum(r.size for r in result.records) > _STATS_FULL_MAX
 
     if not cache:
         _commit(root, result, _corpus_stats(result.records, light))
-        if not args.hook:
+        if not hook:
             print(f"cm gate: baseline created ({len(result.records)} files, "
                   f"{len(result.all_units())} units)")
         return 0
@@ -1008,41 +1087,125 @@ def cmd_gate(args) -> int:
     targets = _changed_units(result, cache)
     if not targets:
         _commit(root, result, _corpus_stats(result.records, light))
-        if not args.hook:
+        if not hook:
             print("gate clean: no changed units; baseline refreshed")
         return 0
 
-    accepted = load_accepted(root)
-    reports = score_targets(targets, result.all_units(scoreable_only=True), top=args.top)
-    blocking, overlaps = [], []
-    for rep in reports:
-        if rep["trivial"] or rep["fp"] in accepted:
-            continue
-        v = verdict(rep, args.warn, args.fail)
-        if v == "duplicate":
-            blocking.append(rep)
-        elif v == "overlap":
-            overlaps.append(rep)
+    reports = score_targets(targets, result.all_units(scoreable_only=True), top=top)
+    blocking, overlaps = _screen(reports, load_accepted(root), warn, fail)
 
     if blocking:
-        print(f"cm gate BLOCKED: {len(blocking)} duplicate unit(s) — this appears "
-              f"to already exist in the codebase.", file=out)
-        for rep in sorted(blocking, key=lambda r: -r["wasted_bits"]):
-            _print_unit_report(rep, args.warn, args.fail, out=out)
-        print("Investigate each match above (read the cited unit). Then either "
-              "reuse/extend it, or — if the similarity is intentional — run:", file=out)
-        for rep in blocking:
-            print(f"  cm accept {rep['fp']}    # {rep['unit']}", file=out)
-        print("Baseline NOT updated; the gate will re-flag until resolved.", file=out)
-        return 2 if args.hook else 1
+        _print_block(
+            f"cm gate BLOCKED: {len(blocking)} duplicate unit(s) — this appears "
+            f"to already exist in the codebase.",
+            "Baseline NOT updated; the gate will re-flag until resolved.",
+            blocking, warn, fail, out)
+        return 2 if hook else 1
 
     _commit(root, result, _corpus_stats(result.records, light))
-    if not args.hook:
+    if not hook:
         print(f"gate clean: {len(targets)} changed unit(s) scored, "
               f"{len(overlaps)} overlap(s) noted (non-blocking); baseline updated")
         for rep in overlaps[:5]:
-            _print_unit_report(rep, args.warn, args.fail)
+            _print_unit_report(rep, warn, fail)
     return 0
+
+
+def cmd_gate(args) -> int:
+    return _gate_run(Path(args.path).resolve(), args.warn, args.fail, args.top, args.hook)
+
+
+def _proposed_content(path: Path, tool: str, tool_input: dict) -> str | None:
+    """Model the post-tool content of a Write/Edit. None = cannot model: allow,
+    and let the tool (or the post-write gate) handle it."""
+    if tool == "Write":
+        content = tool_input.get("content")
+        return content if isinstance(content, str) else None
+    if tool in ("Edit", "MultiEdit"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+        except OSError:
+            return None
+        edits = tool_input.get("edits") or [tool_input]
+        for e in edits:
+            old = (e.get("old_string") or "").replace("\r\n", "\n")
+            new = (e.get("new_string") or "").replace("\r\n", "\n")
+            if not old:
+                return None
+            hits = text.count(old)
+            if hits == 0 or (hits > 1 and not e.get("replace_all")):
+                return None  # the tool itself will reject this edit
+            text = text.replace(old, new) if e.get("replace_all") else text.replace(old, new, 1)
+        return text
+    return None
+
+
+def _precheck(root: Path, abspath: Path, proposed: str,
+              warn: float, fail: float, top: int) -> int:
+    """Score a proposed write before it reaches disk. 0 = allow, 2 = deny."""
+    cache = load_cache(root)
+    if not cache:
+        return 0  # no baseline yet; the post-write gate will create it
+    try:
+        rel = abspath.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return 0
+    if IgnoreRules.load(root).ignored(rel, is_dir=False):
+        return 0
+    raw = proposed.encode("utf-8")
+    if len(raw) > MAX_FILE_BYTES:
+        return 0
+    rec = record_from_bytes(raw, rel, str(abspath))
+    if rec is None:
+        return 0
+    extract_units(rec)
+    entry = cache.get(rel)
+    prev_fps = {u["fp"] for u in entry["units"]} if entry else set()
+    targets = [u for u in rec.units if u.scoreable and u.fp not in prev_fps]
+    if not targets:
+        return 0
+    result = scan_tree(root, cache=cache)
+    corpus = [u for r in result.records if r.path != rel
+              for u in r.units if u.scoreable]
+    corpus += [u for u in rec.units if u.scoreable]
+    reports = score_targets(targets, corpus, top=top)
+    blocking, _ = _screen(reports, load_accepted(root), warn, fail)
+    if blocking:
+        _print_block(
+            f"cm precheck DENIED this write: {len(blocking)} unit(s) duplicate "
+            f"code that already exists. The file was NOT modified.",
+            "Revise the write to reuse/extend the cited unit, or accept first and retry.",
+            blocking, warn, fail, sys.stderr)
+        return 2
+    return 0
+
+
+def cmd_hook(args) -> int:
+    """Claude Code hook entry: reads the hook JSON on stdin.
+
+    PreToolUse on Write/Edit -> score the proposed content and deny duplicates
+    before they reach disk. Everything else -> reconcile via the gate.
+    """
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        return 0
+    if not isinstance(payload, dict):
+        return 0
+    tool_input = payload.get("tool_input") or {}
+    target = tool_input.get("file_path") or tool_input.get("notebook_path")
+    start = Path(target).parent if target else Path(payload.get("cwd") or ".")
+    root = find_root(start)
+    if root is None:
+        return 0  # repo has not opted in to cm
+    if payload.get("hook_event_name") == "PreToolUse":
+        if not target:
+            return 0
+        proposed = _proposed_content(Path(target), payload.get("tool_name", ""), tool_input)
+        if proposed is None:
+            return 0
+        return _precheck(root, Path(target), proposed, args.warn, args.fail, args.top)
+    return _gate_run(root, args.warn, args.fail, args.top, hook=True)
 
 
 def cmd_accept(args) -> int:
@@ -1067,10 +1230,12 @@ This repo is compiled into PROJECT.cm (every file's functions, fingerprints,
 and algorithm skeletons). The goal is token efficiency: never rewrite what
 the codebase already contains.
 
-- After creating or modifying code, `cm gate` runs (via hook, or run it
-  yourself). It recompiles incrementally and scores only what changed.
-- If it reports DUPLICATE, stop: read the cited unit (file@lines, anchor
-  diff explains any difference) and reuse or extend it instead.
+- Writes are checked BEFORE they land: the precheck hook denies duplicate
+  code with the file untouched. After clean writes land, `cm gate`
+  reconciles the baseline incrementally.
+- If a write is DENIED or the gate reports DUPLICATE, stop: read the cited
+  unit (file@lines; the anchor diff explains any difference) and reuse or
+  extend it instead.
 - If the similarity is intentional, run `cm accept <fp>` and continue.
 - PROJECT.cm and the baseline update automatically when the gate passes.
 {_PROTO_END}"""
@@ -1234,6 +1399,14 @@ def main(argv=None) -> int:
     g.add_argument("--fail", type=float, default=0.80)
     g.add_argument("--top", type=int, default=3)
     g.set_defaults(fn=cmd_gate)
+
+    hk = sub.add_parser("hook", help="Claude Code hook entry (hook JSON on stdin): "
+                                     "PreToolUse denies duplicate writes pre-disk, "
+                                     "PostToolUse reconciles via the gate")
+    hk.add_argument("--warn", type=float, default=0.55)
+    hk.add_argument("--fail", type=float, default=0.80)
+    hk.add_argument("--top", type=int, default=3)
+    hk.set_defaults(fn=cmd_hook)
 
     ac = sub.add_parser("accept", help="mark flagged fingerprints as reviewed-and-intentional")
     ac.add_argument("fps", nargs="+", metavar="fp")
@@ -2529,22 +2702,26 @@ def verdict(rep: dict, warn: float, fail: float) -> str:
 
 ::file cm/scan.py
 ::lang python
-::sha 30b6857730f3
-::lines 96
+::sha 3ceb4f5dba30
+::lines 104
 ::doc Tree scanning: walk the codebase, honor .cmignore, produce FileRecords.
 ::imports __future__, cache, extract, hashlib, ignore, model, os, pathlib
-::unit function read_file @23-36 #f663e7f7
+::unit function record_from_bytes @23-39 #51fa732d
+::sig record_from_bytes(raw: bytes, relpath: str, abspath: str) -> FileRecord | None
+::doc Decode raw content into a FileRecord (no unit analysis). None if binary.
+::algo cfg=if{ret},=,=,=,=,ret an=-:1,FileRecord:1,and:1,count:3,decode:1,encode:1,hexdigest:1,in:1,lang_for:1,len:2,not:1,replace:2,sha256:1,split:1,|b:1
+::unit function read_file @42-44 #4526954c
 ::sig read_file(abspath: Path, relpath: str) -> FileRecord | None
 ::doc Read and decode one file (no unit analysis). None if binary.
-::algo cfg==,if{ret},=,=,=,=,ret an=-:1,FileRecord:1,and:1,count:3,decode:1,encode:1,hexdigest:1,in:1,lang_for:1,len:2,not:1,read_bytes:1,replace:2,sha256:1,split:1,str:1,|b:1
-::unit function load_file @39-44 #8a79b0e5
+::algo cfg=ret an=read_bytes:1,record_from_bytes:1,str:1,|b:1
+::unit function load_file @47-52 #8a79b0e5
 ::sig load_file(abspath: Path, relpath: str) -> FileRecord | None
 ::doc Read + analyze one file. None if binary.
 ::algo cfg==,if{call},ret an=extract_units:1,is-not:1,read_file:1,|b:1
-::unit function scan_tree @47-95 #4e621ef4
+::unit function scan_tree @55-103 #4e621ef4
 ::sig scan_tree(root: Path, rules: IgnoreRules | None=None, exclude_abs: set[str] | None=None, cache: dict | None=None) -> ScanResult
 ::algo cfg==,=,=,=,=,for{=,=,=,for{=,=,if{cnt},try{=|cnt},if{call,cnt},=,if{call,+=,=,cnt},=,if{call,cnt},=,if{call,+=|call,call},call}},call,ret an=/:1,==:4,>:1,Path:2,ScanResult:1,and:3,append:5,as_posix:1,attach_cached_units:1,cache_hits:2,changed:1,extract_units:1,get:1,ignored:2,in:1,mtimes:2,or:4,records:3,resolve:2,sorted:2,st_mtime_ns:3,st_size:2,str:3,|b:3
-::content 96
+::content 104
 """Tree scanning: walk the codebase, honor .cmignore, produce FileRecords.
 
 With a cache (see cache.py) the scan is incremental: a file whose size+mtime
@@ -2567,9 +2744,12 @@ from .model import FileRecord, ScanResult
 MAX_FILE_BYTES = 1_048_576
 
 
-def read_file(abspath: Path, relpath: str) -> FileRecord | None:
-    """Read and decode one file (no unit analysis). None if binary."""
-    raw = abspath.read_bytes()
+def record_from_bytes(raw: bytes, relpath: str, abspath: str) -> FileRecord | None:
+    """Decode raw content into a FileRecord (no unit analysis). None if binary.
+
+    Works for content that is not on disk (yet) — the precheck path scores
+    proposed writes this way before they land.
+    """
     if b"\0" in raw[:8192]:
         return None
     text = raw.decode("utf-8", errors="replace")
@@ -2577,10 +2757,15 @@ def read_file(abspath: Path, relpath: str) -> FileRecord | None:
     eol = "crlf" if crlf and not lone_lf else "mixed" if crlf else "lf"
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     return FileRecord(
-        path=relpath, abspath=str(abspath), lang=lang_for(relpath), text=text,
+        path=relpath, abspath=abspath, lang=lang_for(relpath), text=text,
         sha=hashlib.sha256(text.encode("utf-8")).hexdigest()[:12],
         size=len(raw), lines=len(text.split("\n")), eol=eol,
     )
+
+
+def read_file(abspath: Path, relpath: str) -> FileRecord | None:
+    """Read and decode one file (no unit analysis). None if binary."""
+    return record_from_bytes(abspath.read_bytes(), relpath, str(abspath))
 
 
 def load_file(abspath: Path, relpath: str) -> FileRecord | None:
@@ -2911,7 +3096,7 @@ def anchor_diff(a: str, b: str, cap: int = 6) -> tuple[list[str], list[str]]:
 
 ::file pyproject.toml
 ::lang toml
-::sha 7a1cf561abe7
+::sha 7c848095e2b5
 ::lines 17
 ::content 17
 [build-system]
@@ -2920,7 +3105,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cm-compiler"
-version = "0.2.0"
+version = "0.3.0"
 description = "Compile a codebase into a context management artifact (PROJECT.cm) with information-theoretic redundancy checks."
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -3525,8 +3710,8 @@ if __name__ == "__main__":
 
 ::file tests/test_plugin_hook.py
 ::lang python
-::sha b9e210fb0483
-::lines 62
+::sha a40a8ac8e6c9
+::lines 99
 ::imports contextlib, json, pathlib, subprocess, sys, tempfile, tests.test_incremental, tests.test_redundancy, unittest
 ::unit function run_hook @15-19 #36bdff5a
 ::sig run_hook(payload, cwd=None) -> subprocess.CompletedProcess
@@ -3548,7 +3733,24 @@ if __name__ == "__main__":
 ::unit method TestGateHook.test_malformed_stdin_never_blocks @54-57 #a2694abd
 ::sig test_malformed_stdin_never_blocks(self)
 ::algo cfg=with{=},call an=TemporaryDirectory:1,assertEqual:1,returncode:1,run_hook:1
-::content 62
+::unit function pre_payload @60-62 #1f6a5329
+::sig pre_payload(tool: str, path: Path, **tool_input) -> dict
+::algo cfg=ret an=str:1
+::unit class TestPrecheck @65-94 #30f31d19
+::sig class TestPrecheck
+::unit method TestPrecheck.test_duplicate_write_denied_before_disk @66-74 #8e43cd9a
+::sig test_duplicate_write_denied_before_disk(self)
+::algo cfg=with{=,=,=},call,call,call,call an=/:1,assertEqual:1,assertFalse:1,assertIn:2,exists:1,pre_payload:1,repo:1,returncode:1,run_hook:1,stderr:2
+::unit method TestPrecheck.test_novel_write_allowed @76-79 #54c01a1c
+::sig test_novel_write_allowed(self)
+::algo cfg=with{=},call an=/:1,assertEqual:1,pre_payload:1,repo:1,returncode:1,run_hook:1
+::unit method TestPrecheck.test_edit_that_creates_clone_denied @81-88 #a9ae9795
+::sig test_edit_that_creates_clone_denied(self)
+::algo cfg=with{call,call,=},call,call an=/:2,assertEqual:1,assertIn:1,pre_payload:1,repo:1,returncode:1,run_cli:1,run_hook:1,stderr:1,str:1,write_text:1
+::unit method TestPrecheck.test_unmatchable_edit_allowed @90-94 #93708ed5
+::sig test_unmatchable_edit_allowed(self)
+::algo cfg=with{=},call an=/:1,assertEqual:1,pre_payload:1,repo:1,returncode:1,run_hook:1
+::content 99
 import contextlib
 import json
 import subprocess
@@ -3558,7 +3760,7 @@ import unittest
 from pathlib import Path
 
 from tests.test_incremental import run_cli
-from tests.test_redundancy import ORIGINAL, PURE_RENAME
+from tests.test_redundancy import ORIGINAL, PURE_RENAME, UNRELATED
 
 HOOK = Path(__file__).resolve().parent.parent / "cm-plugin" / "scripts" / "gate_hook.py"
 
@@ -3605,6 +3807,43 @@ class TestGateHook(unittest.TestCase):
     def test_malformed_stdin_never_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:
             proc = run_hook("not json", cwd=tmp)
+        self.assertEqual(proc.returncode, 0)
+
+
+def pre_payload(tool: str, path: Path, **tool_input) -> dict:
+    return {"hook_event_name": "PreToolUse", "tool_name": tool,
+            "tool_input": {"file_path": str(path), **tool_input}}
+
+
+class TestPrecheck(unittest.TestCase):
+    def test_duplicate_write_denied_before_disk(self):
+        with repo(baseline=True) as root:
+            target = root / "b.py"
+            proc = run_hook(pre_payload("Write", target, content=PURE_RENAME))
+            existed = target.exists()
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("DENIED", proc.stderr)
+        self.assertIn("aggregate_metrics", proc.stderr)
+        self.assertFalse(existed)  # nothing ever reached disk
+
+    def test_novel_write_allowed(self):
+        with repo(baseline=True) as root:
+            proc = run_hook(pre_payload("Write", root / "b.py", content=UNRELATED))
+        self.assertEqual(proc.returncode, 0)
+
+    def test_edit_that_creates_clone_denied(self):
+        with repo(baseline=True) as root:
+            (root / "c.py").write_text(UNRELATED, encoding="utf-8")
+            run_cli("gate", str(root))  # fold c.py into the baseline
+            proc = run_hook(pre_payload("Edit", root / "c.py",
+                                        old_string=UNRELATED, new_string=PURE_RENAME))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("aggregate_metrics", proc.stderr)
+
+    def test_unmatchable_edit_allowed(self):
+        with repo(baseline=True) as root:
+            proc = run_hook(pre_payload("Edit", root / "a.py",
+                                        old_string="NOT PRESENT ANYWHERE", new_string="x"))
         self.assertEqual(proc.returncode, 0)
 
 

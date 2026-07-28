@@ -20,9 +20,12 @@ from .model import FileRecord, ScanResult
 MAX_FILE_BYTES = 1_048_576
 
 
-def read_file(abspath: Path, relpath: str) -> FileRecord | None:
-    """Read and decode one file (no unit analysis). None if binary."""
-    raw = abspath.read_bytes()
+def record_from_bytes(raw: bytes, relpath: str, abspath: str) -> FileRecord | None:
+    """Decode raw content into a FileRecord (no unit analysis). None if binary.
+
+    Works for content that is not on disk (yet) — the precheck path scores
+    proposed writes this way before they land.
+    """
     if b"\0" in raw[:8192]:
         return None
     text = raw.decode("utf-8", errors="replace")
@@ -30,10 +33,15 @@ def read_file(abspath: Path, relpath: str) -> FileRecord | None:
     eol = "crlf" if crlf and not lone_lf else "mixed" if crlf else "lf"
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     return FileRecord(
-        path=relpath, abspath=str(abspath), lang=lang_for(relpath), text=text,
+        path=relpath, abspath=abspath, lang=lang_for(relpath), text=text,
         sha=hashlib.sha256(text.encode("utf-8")).hexdigest()[:12],
         size=len(raw), lines=len(text.split("\n")), eol=eol,
     )
+
+
+def read_file(abspath: Path, relpath: str) -> FileRecord | None:
+    """Read and decode one file (no unit analysis). None if binary."""
+    return record_from_bytes(abspath.read_bytes(), relpath, str(abspath))
 
 
 def load_file(abspath: Path, relpath: str) -> FileRecord | None:

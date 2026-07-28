@@ -9,13 +9,14 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .cache import add_accepted, load_accepted, load_cache, save_cache
+from .cache import add_accepted, find_root, load_accepted, load_cache, save_cache
 from .cmfile import emit, parse
+from .extract import extract_units
 from .ignore import IgnoreRules
 from .model import Unit
 from .normalize import norm_source
 from .redundancy import score_targets, standalone_bits, verdict
-from .scan import load_file, scan_tree
+from .scan import MAX_FILE_BYTES, load_file, record_from_bytes, scan_tree
 
 _LZMA_EMPTY = len(lzma.compress(b""))
 _STATS_FULL_MAX = 4_000_000  # above this many raw bytes, gate skips corpus compression
@@ -212,18 +213,42 @@ def _changed_units(result, cache: dict) -> list[Unit]:
     return targets
 
 
-def cmd_gate(args) -> int:
+def _screen(reports, accepted, warn, fail):
+    """Split reports into (blocking duplicates, non-blocking overlaps)."""
+    blocking, overlaps = [], []
+    for rep in reports:
+        if rep["trivial"] or rep["fp"] in accepted:
+            continue
+        v = verdict(rep, warn, fail)
+        if v == "duplicate":
+            blocking.append(rep)
+        elif v == "overlap":
+            overlaps.append(rep)
+    return blocking, overlaps
+
+
+def _print_block(headline, footer, blocking, warn, fail, out):
+    print(headline, file=out)
+    for rep in sorted(blocking, key=lambda r: -r["wasted_bits"]):
+        _print_unit_report(rep, warn, fail, out=out)
+    print("Investigate each match above (read the cited unit). Then either "
+          "reuse/extend it, or — if the similarity is intentional — run:", file=out)
+    for rep in blocking:
+        print(f'  cm accept {rep["fp"]} --reason "..."    # {rep["unit"]}', file=out)
+    print(footer, file=out)
+
+
+def _gate_run(root: Path, warn: float, fail: float, top: int, hook: bool) -> int:
     """The write interlock: recompile incrementally, score what changed,
     block (exit nonzero) on unreviewed duplicates, else commit the new baseline."""
-    root = Path(args.path).resolve()
-    out = sys.stderr if args.hook else sys.stdout
+    out = sys.stderr if hook else sys.stdout
     cache = load_cache(root)
     result = scan_tree(root, cache=cache)
     light = sum(r.size for r in result.records) > _STATS_FULL_MAX
 
     if not cache:
         _commit(root, result, _corpus_stats(result.records, light))
-        if not args.hook:
+        if not hook:
             print(f"cm gate: baseline created ({len(result.records)} files, "
                   f"{len(result.all_units())} units)")
         return 0
@@ -231,41 +256,125 @@ def cmd_gate(args) -> int:
     targets = _changed_units(result, cache)
     if not targets:
         _commit(root, result, _corpus_stats(result.records, light))
-        if not args.hook:
+        if not hook:
             print("gate clean: no changed units; baseline refreshed")
         return 0
 
-    accepted = load_accepted(root)
-    reports = score_targets(targets, result.all_units(scoreable_only=True), top=args.top)
-    blocking, overlaps = [], []
-    for rep in reports:
-        if rep["trivial"] or rep["fp"] in accepted:
-            continue
-        v = verdict(rep, args.warn, args.fail)
-        if v == "duplicate":
-            blocking.append(rep)
-        elif v == "overlap":
-            overlaps.append(rep)
+    reports = score_targets(targets, result.all_units(scoreable_only=True), top=top)
+    blocking, overlaps = _screen(reports, load_accepted(root), warn, fail)
 
     if blocking:
-        print(f"cm gate BLOCKED: {len(blocking)} duplicate unit(s) — this appears "
-              f"to already exist in the codebase.", file=out)
-        for rep in sorted(blocking, key=lambda r: -r["wasted_bits"]):
-            _print_unit_report(rep, args.warn, args.fail, out=out)
-        print("Investigate each match above (read the cited unit). Then either "
-              "reuse/extend it, or — if the similarity is intentional — run:", file=out)
-        for rep in blocking:
-            print(f"  cm accept {rep['fp']}    # {rep['unit']}", file=out)
-        print("Baseline NOT updated; the gate will re-flag until resolved.", file=out)
-        return 2 if args.hook else 1
+        _print_block(
+            f"cm gate BLOCKED: {len(blocking)} duplicate unit(s) — this appears "
+            f"to already exist in the codebase.",
+            "Baseline NOT updated; the gate will re-flag until resolved.",
+            blocking, warn, fail, out)
+        return 2 if hook else 1
 
     _commit(root, result, _corpus_stats(result.records, light))
-    if not args.hook:
+    if not hook:
         print(f"gate clean: {len(targets)} changed unit(s) scored, "
               f"{len(overlaps)} overlap(s) noted (non-blocking); baseline updated")
         for rep in overlaps[:5]:
-            _print_unit_report(rep, args.warn, args.fail)
+            _print_unit_report(rep, warn, fail)
     return 0
+
+
+def cmd_gate(args) -> int:
+    return _gate_run(Path(args.path).resolve(), args.warn, args.fail, args.top, args.hook)
+
+
+def _proposed_content(path: Path, tool: str, tool_input: dict) -> str | None:
+    """Model the post-tool content of a Write/Edit. None = cannot model: allow,
+    and let the tool (or the post-write gate) handle it."""
+    if tool == "Write":
+        content = tool_input.get("content")
+        return content if isinstance(content, str) else None
+    if tool in ("Edit", "MultiEdit"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+        except OSError:
+            return None
+        edits = tool_input.get("edits") or [tool_input]
+        for e in edits:
+            old = (e.get("old_string") or "").replace("\r\n", "\n")
+            new = (e.get("new_string") or "").replace("\r\n", "\n")
+            if not old:
+                return None
+            hits = text.count(old)
+            if hits == 0 or (hits > 1 and not e.get("replace_all")):
+                return None  # the tool itself will reject this edit
+            text = text.replace(old, new) if e.get("replace_all") else text.replace(old, new, 1)
+        return text
+    return None
+
+
+def _precheck(root: Path, abspath: Path, proposed: str,
+              warn: float, fail: float, top: int) -> int:
+    """Score a proposed write before it reaches disk. 0 = allow, 2 = deny."""
+    cache = load_cache(root)
+    if not cache:
+        return 0  # no baseline yet; the post-write gate will create it
+    try:
+        rel = abspath.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return 0
+    if IgnoreRules.load(root).ignored(rel, is_dir=False):
+        return 0
+    raw = proposed.encode("utf-8")
+    if len(raw) > MAX_FILE_BYTES:
+        return 0
+    rec = record_from_bytes(raw, rel, str(abspath))
+    if rec is None:
+        return 0
+    extract_units(rec)
+    entry = cache.get(rel)
+    prev_fps = {u["fp"] for u in entry["units"]} if entry else set()
+    targets = [u for u in rec.units if u.scoreable and u.fp not in prev_fps]
+    if not targets:
+        return 0
+    result = scan_tree(root, cache=cache)
+    corpus = [u for r in result.records if r.path != rel
+              for u in r.units if u.scoreable]
+    corpus += [u for u in rec.units if u.scoreable]
+    reports = score_targets(targets, corpus, top=top)
+    blocking, _ = _screen(reports, load_accepted(root), warn, fail)
+    if blocking:
+        _print_block(
+            f"cm precheck DENIED this write: {len(blocking)} unit(s) duplicate "
+            f"code that already exists. The file was NOT modified.",
+            "Revise the write to reuse/extend the cited unit, or accept first and retry.",
+            blocking, warn, fail, sys.stderr)
+        return 2
+    return 0
+
+
+def cmd_hook(args) -> int:
+    """Claude Code hook entry: reads the hook JSON on stdin.
+
+    PreToolUse on Write/Edit -> score the proposed content and deny duplicates
+    before they reach disk. Everything else -> reconcile via the gate.
+    """
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        return 0
+    if not isinstance(payload, dict):
+        return 0
+    tool_input = payload.get("tool_input") or {}
+    target = tool_input.get("file_path") or tool_input.get("notebook_path")
+    start = Path(target).parent if target else Path(payload.get("cwd") or ".")
+    root = find_root(start)
+    if root is None:
+        return 0  # repo has not opted in to cm
+    if payload.get("hook_event_name") == "PreToolUse":
+        if not target:
+            return 0
+        proposed = _proposed_content(Path(target), payload.get("tool_name", ""), tool_input)
+        if proposed is None:
+            return 0
+        return _precheck(root, Path(target), proposed, args.warn, args.fail, args.top)
+    return _gate_run(root, args.warn, args.fail, args.top, hook=True)
 
 
 def cmd_accept(args) -> int:
@@ -290,10 +399,12 @@ This repo is compiled into PROJECT.cm (every file's functions, fingerprints,
 and algorithm skeletons). The goal is token efficiency: never rewrite what
 the codebase already contains.
 
-- After creating or modifying code, `cm gate` runs (via hook, or run it
-  yourself). It recompiles incrementally and scores only what changed.
-- If it reports DUPLICATE, stop: read the cited unit (file@lines, anchor
-  diff explains any difference) and reuse or extend it instead.
+- Writes are checked BEFORE they land: the precheck hook denies duplicate
+  code with the file untouched. After clean writes land, `cm gate`
+  reconciles the baseline incrementally.
+- If a write is DENIED or the gate reports DUPLICATE, stop: read the cited
+  unit (file@lines; the anchor diff explains any difference) and reuse or
+  extend it instead.
 - If the similarity is intentional, run `cm accept <fp>` and continue.
 - PROJECT.cm and the baseline update automatically when the gate passes.
 {_PROTO_END}"""
@@ -457,6 +568,14 @@ def main(argv=None) -> int:
     g.add_argument("--fail", type=float, default=0.80)
     g.add_argument("--top", type=int, default=3)
     g.set_defaults(fn=cmd_gate)
+
+    hk = sub.add_parser("hook", help="Claude Code hook entry (hook JSON on stdin): "
+                                     "PreToolUse denies duplicate writes pre-disk, "
+                                     "PostToolUse reconciles via the gate")
+    hk.add_argument("--warn", type=float, default=0.55)
+    hk.add_argument("--fail", type=float, default=0.80)
+    hk.add_argument("--top", type=int, default=3)
+    hk.set_defaults(fn=cmd_hook)
 
     ac = sub.add_parser("accept", help="mark flagged fingerprints as reviewed-and-intentional")
     ac.add_argument("fps", nargs="+", metavar="fp")

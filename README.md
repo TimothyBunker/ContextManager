@@ -31,36 +31,36 @@ cm drift <manifest>          [experimental] context-vs-PROJECT.cm divergence
 
 ## The agentic loop
 
-`cm init --hooks` installs three things: the compiled baseline (`PROJECT.cm`
-plus the `.cm/` cache), a protocol section in CLAUDE.md/AGENTS.md, and a
-Claude Code PostToolUse hook on Write/Edit. From then on every write triggers
-`cm gate`:
+With the plugin (or `cm init --hooks`), every agent write passes through cm
+twice:
 
-1. **Incremental recompile.** Unchanged files restore from the cache by
-   size+mtime (content hash as fallback); only edited files are re-analyzed.
-   The corpus the score runs against is never stale.
-2. **Score what changed.** Units whose fingerprint is new to their file are
-   scored against the whole current tree. Moved code and renamed locals keep
-   their fingerprints and are not re-flagged; comment-only edits pass through.
-3. **Commit or block.** No duplicates: the baseline advances automatically,
-   so PROJECT.cm is always current. Duplicates: the hook exits 2, feeding the
-   *where* (file@lines), the *why* (overlap blocks + anchor diff), and the
-   resolution back to the agent. The baseline stays frozen until the agent
-   reuses the existing unit or explicitly runs `cm accept <fp>`.
+1. **Before it lands (PreToolUse).** The proposed content — `Write.content`,
+   or the file with `Edit` strings applied — is scored *in memory*. Units
+   that duplicate existing code are **DENIED with the file untouched**: the
+   agent sees the *where* (file@lines), the *why* (overlap + anchor diff),
+   and revises instead of writing. Nothing to clean up, no tokens spent on
+   code that gets reverted.
+2. **After it lands (PostToolUse).** `cm gate` recompiles incrementally
+   (unchanged files restore from the cache by size+mtime, content hash as
+   fallback), scores anything the precheck could not model, and commits the
+   new baseline — so PROJECT.cm is always current. Unresolved duplicates
+   freeze the baseline until reused or accepted (`cm accept <fp> --reason`).
 
-Overlap-level findings are reported but never block. A warm gate on this repo
-runs in ~300 ms.
+Moved code and renamed locals keep their fingerprints and are not re-flagged;
+comment-only edits pass straight through. Overlap-level findings are reported
+but never block. A warm gate on this repo runs in ~300 ms.
 
 ## Claude Code plugin
 
 [`cm-plugin/`](cm-plugin/) packages the loop for distribution, and this repo
 doubles as a local plugin marketplace:
 
-- **hook** — PostToolUse on Write/Edit runs a safe wrapper
-  ([gate_hook.py](cm-plugin/scripts/gate_hook.py)): it walks up from the
-  edited file, gates only repos that opted in via `cm init` (a `.cm/` or
-  PROJECT.cm exists), and exits silently on any infrastructure failure — a
-  broken gate must never block unrelated work.
+- **hooks** — PreToolUse denies duplicate writes before they reach disk;
+  PostToolUse reconciles and commits after clean writes land. Both run
+  [gate_hook.py](cm-plugin/scripts/gate_hook.py), a fail-open shim around
+  `cm hook`: it gates only repos that opted in via `cm init` (a `.cm/` or
+  PROJECT.cm exists up the tree) and exits silently on any infrastructure
+  failure — a broken gate must never block unrelated work.
 - **skill** — `redundancy-gate` teaches the agent the judgment half: how to
   read a block (anchor diffs, algo-sim, overlaps), the resolution protocol
   (reuse > extend > `cm accept --reason`), and why dodging the gate by
@@ -196,8 +196,6 @@ DRIFT vs PROJECT.cm: 31/90 units in context, 0 stale, 59 missing
 - `cm annotate` — LLM-generated `::doc` lines for undocumented units.
 - Candidate pruning for very large corpora (fingerprint buckets, anchor
   prefilters before compression) so gate latency stays flat as repos grow.
-- A PreToolUse variant of the gate that scores content *before* it reaches
-  disk (today's PostToolUse hook flags immediately after the write lands).
 - Retrieval (`cm get`/`cm find`, MCP slices) — deferred by design for now;
   the current product is the gate, not context serving.
 - Tree-sitter extractors; per-language keyword tables beyond py/js/ts.

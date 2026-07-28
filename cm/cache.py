@@ -25,6 +25,17 @@ def cm_dir(root: Path) -> Path:
     return root / CM_DIR
 
 
+def find_root(start: Path) -> Path | None:
+    """Walk up from `start` to the nearest cm-initialized directory."""
+    d = Path(start).resolve()
+    while True:
+        if (d / CM_DIR).is_dir() or (d / "PROJECT.cm").is_file():
+            return d
+        if d.parent == d:
+            return None
+        d = d.parent
+
+
 def _unit_to_dict(u: Unit) -> dict:
     return {
         "kind": u.kind, "name": u.name, "qualname": u.qualname,
