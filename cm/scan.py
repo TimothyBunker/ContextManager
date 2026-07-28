@@ -28,7 +28,8 @@ def record_from_bytes(raw: bytes, relpath: str, abspath: str) -> FileRecord | No
     """
     if b"\0" in raw[:8192]:
         return None
-    text = raw.decode("utf-8", errors="replace")
+    # utf-8-sig strips a leading BOM (common on Windows); ast.parse chokes on it
+    text = raw.decode("utf-8-sig", errors="replace")
     crlf, lone_lf = text.count("\r\n"), text.count("\n") - text.count("\r\n")
     eol = "crlf" if crlf and not lone_lf else "mixed" if crlf else "lf"
     text = text.replace("\r\n", "\n").replace("\r", "\n")

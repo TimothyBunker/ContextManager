@@ -1,8 +1,8 @@
 ::cm 0.2
 ::project ContextManager
 ::root .
-::generated 2026-07-28T02:56:21+00:00
-::stats files=33 units=179 functions=156 raw_bytes=131801 info_bits=163072 structural_redundancy=0.301
+::generated 2026-07-28T03:10:11+00:00
+::stats files=33 units=181 functions=158 raw_bytes=136543 info_bits=164672 structural_redundancy=0.3
 
 ::file .claude-plugin/marketplace.json
 ::lang json
@@ -62,10 +62,10 @@ venv/
 
 ::file CLAUDE.md
 ::lang markdown
-::sha f7ceaf99bc07
-::lines 15
+::sha 4df511160eb1
+::lines 17
 ::doc cm — redundancy gate
-::content 15
+::content 17
 <!-- cm:protocol:begin -->
 ## cm — redundancy gate
 
@@ -73,10 +73,12 @@ This repo is compiled into PROJECT.cm (every file's functions, fingerprints,
 and algorithm skeletons). The goal is token efficiency: never rewrite what
 the codebase already contains.
 
-- After creating or modifying code, `cm gate` runs (via hook, or run it
-  yourself). It recompiles incrementally and scores only what changed.
-- If it reports DUPLICATE, stop: read the cited unit (file@lines, anchor
-  diff explains any difference) and reuse or extend it instead.
+- Writes are checked BEFORE they land: the precheck hook denies duplicate
+  code with the file untouched. After clean writes land, `cm gate`
+  reconciles the baseline incrementally.
+- If a write is DENIED or the gate reports DUPLICATE, stop: read the cited
+  unit (file@lines; the anchor diff explains any difference) and reuse or
+  extend it instead.
 - If the similarity is intentional, run `cm accept <fp>` and continue.
 - PROJECT.cm and the baseline update automatically when the gate passes.
 <!-- cm:protocol:end -->
@@ -295,12 +297,12 @@ DRIFT vs PROJECT.cm: 31/90 units in context, 0 stale, 59 missing
 
 ::file cm-plugin/.claude-plugin/plugin.json
 ::lang json
-::sha ac71642518ab
+::sha 8c8e4f49b766
 ::lines 9
 ::content 9
 {
   "name": "cm",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Redundancy gate for agent writes: incremental codebase compiler (PROJECT.cm) plus a write interlock that blocks duplicate code with evidence — where it already lives, why it matches, how to resolve.",
   "author": {
     "name": "ContextManager"
@@ -543,13 +545,13 @@ cm build --full           force a full recompile of PROJECT.cm
 
 ::file cm/__init__.py
 ::lang python
-::sha b8ff0610d067
+::sha dcf6592df023
 ::lines 4
 ::doc cm — compile a codebase into a context management artifact (PROJECT.cm).
 ::content 4
 """cm — compile a codebase into a context management artifact (PROJECT.cm)."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 ::endfile
 
@@ -748,8 +750,8 @@ def add_accepted(root: Path, fps: list[str], reason: str = "") -> None:
 
 ::file cm/cli.py
 ::lang python
-::sha 12732fc2b605
-::lines 619
+::sha 9018f6fe713f
+::lines 634
 ::doc cm command line: build / check / audit / drift.
 ::imports __future__, argparse, cache, cmfile, datetime, extract, ignore, json, lzma, model, normalize, pathlib, redundancy, scan, shutil, sys
 ::unit function _corpus_stats @25-41 #5f0e282e
@@ -768,67 +770,67 @@ def add_accepted(root: Path, fps: list[str], reason: str = "") -> None:
 ::unit function cmd_status @77-95 #e7268336
 ::sig cmd_status(args) -> int
 ::algo cfg==,=,if{call,ret},=,=,=,=,=,=,call,for{for{call}},call,ret an=+:1,-:1,/:1,Path:1,bool:1,changed:2,in:1,is_file:1,len:4,load_cache:1,not:2,not-in:1,or:3,path:2,print:4,records:1,resolve:1,scan_tree:1,set:1,sorted:1
-::unit function _print_unit_report @98-121 #6c099e75
+::unit function _print_unit_report @98-126 #a50b671e
 ::sig _print_unit_report(rep: dict, warn: float, fail: float, out=None) -> None
-::algo cfg==,=,call,if{ret},call,for{=,=,=,call,=,if{=,=,call},for{call}} an=get:3,is-not:1,join:2,or:4,print:5,stdout:1,upper:1,verdict:1
-::unit function _summarize @124-128 #08cf7fda
+::algo cfg==,=,call,if{ret},call,=,if{call},for{=,=,=,call,=,if{=,=,call},for{call}} an=get:4,is-not:1,join:2,or:4,print:6,stdout:1,upper:1,verdict:1
+::unit function _summarize @129-133 #08cf7fda
 ::sig _summarize(reports: list[dict], warn: float, fail: float) -> dict
 ::algo cfg==,for{+=},ret an=verdict:1
-::unit function cmd_check @131-171 #775ab3e3
+::unit function cmd_check @136-176 #775ab3e3
 ::sig cmd_check(args) -> int
 ::algo cfg==,=,for{if{call,ret}},=,=,=,for{=,try{=|=},=,if{call,ret},call},=,=,=,if{call|call,for{call},call},ret an=!=:1,-:1,Path:4,_print_unit_report:1,_summarize:1,all_units:1,as_posix:2,dumps:1,extend:1,fail:3,is:1,is_file:1,join:1,json:1,kind:1,len:3,load_cache:1,print:5,resolve:3,sorted:2,stderr:2,str:2,targets:4,warn:3
-::unit function cmd_audit @174-197 #a2b15ef6
+::unit function cmd_audit @179-202 #a2b15ef6
 ::sig cmd_audit(args) -> int
 ::algo cfg==,=,=,=,=,call,=,if{call,ret},call,if{call},for{call},call,ret an=!=:1,-:1,Path:1,_print_unit_report:1,_summarize:1,all_units:1,and:1,dumps:1,fail:3,json:1,len:2,limit:1,load_cache:1,not:2,path:1,print:4,records:1,resolve:1,scan_tree:1,score_targets:1,sort:1,str:1,top:1,warn:4
-::unit function _changed_units @200-213 #fb750821
+::unit function _changed_units @205-218 #fb750821
 ::sig _changed_units(result, cache: dict) -> list[Unit]
 ::doc Scoreable units that are new or modified relative to the cached baseline.
 ::algo cfg==,for{=,if{cnt},=,call},ret an===:1,and:2,extend:1,fp:1,get:1,is-not:1,not-in:1,path:1,records:1,scoreable:1,set:1,sha:1,units:1
-::unit function _screen @216-227 #6bb2892c
+::unit function _screen @221-232 #6bb2892c
 ::sig _screen(reports, accepted, warn, fail)
 ::doc Split reports into (blocking duplicates, non-blocking overlaps).
 ::algo cfg==,for{if{cnt},=,if{call|if{call}}},ret an===:2,append:2,in:1,or:1,verdict:1
-::unit function _print_block @230-238 #63a57cc4
+::unit function _print_block @235-243 #63a57cc4
 ::sig _print_block(headline, footer, blocking, warn, fail, out)
 ::algo cfg=call,for{call},call,for{call},call an=-:1,_print_unit_report:1,print:4,sorted:1
-::unit function _gate_run @241-280 #c22abff9
+::unit function _gate_run @246-295 #140db240
 ::sig _gate_run(root: Path, warn: float, fail: float, top: int, hook: bool) -> int
 ::doc The write interlock: recompile incrementally, score what changed,
-::algo cfg==,=,=,=,if{call,if{call},ret},=,if{call,if{call},ret},=,=,if{call,ret},call,if{call,for{call}},ret an=>:1,_changed_units:1,_commit:3,_corpus_stats:3,_print_block:1,_print_unit_report:1,_screen:1,all_units:2,len:5,load_accepted:1,load_cache:1,not:5,print:3,records:5,scan_tree:1,score_targets:1,size:1,stderr:1,stdout:1,sum:1
-::unit function cmd_gate @283-284 #f4ad703d
+::algo cfg==,=,=,=,if{call,if{call},ret},=,=,=,=,=,if{call,if{call},ret},=,=,if{call,ret},call,if{call|call,for{call}},ret an=>:1,_changed_units:1,_commit:3,_corpus_stats:3,_print_block:1,_print_unit_report:1,_screen:1,all_units:2,len:8,load_accepted:1,load_cache:1,not:4,not-in:2,or:1,path:1,print:4,records:6,scan_tree:1,score_targets:1,size:1,stderr:1,stdout:1,sum:1
+::unit function cmd_gate @298-299 #f4ad703d
 ::sig cmd_gate(args) -> int
 ::algo cfg=ret an=Path:1,_gate_run:1,fail:1,hook:1,path:1,resolve:1,top:1,warn:1
-::unit function _proposed_content @287-309 #7de0d58b
+::unit function _proposed_content @302-324 #7de0d58b
 ::sig _proposed_content(path: Path, tool: str, tool_input: dict) -> str | None
 ::doc Model the post-tool content of a Write/Edit. None = cannot model: allow,
 ::algo cfg=if{=,ret},if{try{=|ret},=,for{=,=,if{ret},=,if{ret},=},ret},ret an===:2,>:1,and:1,count:1,get:6,in:1,isinstance:1,not:2,or:4,read_text:1,replace:5,|b:1
-::unit function _precheck @312-349 #3f043a1a
+::unit function _precheck @327-364 #3f043a1a
 ::sig _precheck(root: Path, abspath: Path, proposed: str, warn: float, fail: float, top: int) -> int
 ::doc Score a proposed write before it reaches disk. 0 = allow, 2 = deny.
 ::algo cfg==,if{ret},try{=|ret},if{ret},=,if{ret},=,if{ret},call,=,=,=,if{ret},=,=,+=,=,=,if{call,ret},ret an=!=:1,>:1,_print_block:1,_screen:1,and:1,as_posix:1,encode:1,extract_units:1,fp:1,get:1,ignored:1,is:1,len:2,load:1,load_accepted:1,load_cache:1,not:2,not-in:1,path:1,record_from_bytes:1,records:1,relative_to:1,scoreable:3,units:3
-::unit function cmd_hook @352-377 #35eccb54
+::unit function cmd_hook @367-392 #35eccb54
 ::sig cmd_hook(args) -> int
 ::doc Claude Code hook entry: reads the hook JSON on stdin.
 ::algo cfg=try{=|ret},if{ret},=,=,=,=,if{ret},if{if{ret},=,if{ret},ret},ret an===:1,Path:4,_gate_run:1,_precheck:1,_proposed_content:1,fail:2,find_root:1,get:6,is:2,isinstance:1,loads:1,not:2,or:4,parent:1,read:1,stdin:1,top:2,warn:2
-::unit function cmd_accept @380-390 #b89ba7ab
+::unit function cmd_accept @395-405 #b89ba7ab
 ::sig cmd_accept(args) -> int
 ::algo cfg==,=,for{if{call,ret},call},call,call,ret an=!=:1,Path:1,add_accepted:1,any:1,append:1,fps:1,len:2,not-in:1,or:1,print:2,reason:1,resolve:1,root:1,stderr:1
-::unit function _write_protocol @413-427 #5582a96c
+::unit function _write_protocol @428-442 #5582a96c
 ::sig _write_protocol(root: Path) -> str
 ::algo cfg=for{=,if{=,if{=,=,=|=},call,ret}},call,ret an=+:6,/:2,and:1,in:2,is_file:1,partition:2,read_text:1,rstrip:1,write_text:2
-::unit function _install_hook @430-447 #9e2ba13a
+::unit function _install_hook @445-462 #9e2ba13a
 ::sig _install_hook(root: Path) -> str
 ::algo cfg==,=,if{try{=|ret}},=,for{if{ret}},=,call,call,call,ret an=+:1,/:2,any:1,append:1,dumps:1,executable:1,get:2,in:1,is_file:1,loads:1,mkdir:1,parent:1,read_text:1,setdefault:2,which:1,write_text:1
-::unit function cmd_init @450-475 #0d116ae2
+::unit function cmd_init @465-490 #0d116ae2
 ::sig cmd_init(args) -> int
 ::algo cfg==,=,=,if{call,call},=,=,call,call,call,if{call|call},if{call},call,for{call},ret an=/:1,Path:1,_commit:1,_corpus_stats:1,_install_hook:1,_write_protocol:1,append:6,hooks:1,is_file:1,not:2,path:1,print:2,records:1,resolve:1,scan_tree:1,which:1,write_text:1
-::unit function cmd_drift @478-540 #5df32d09
+::unit function cmd_drift @493-555 #5df32d09
 ::sig cmd_drift(args) -> int
 ::algo cfg==,if{call,ret},=,if{=|=},=,=,for{if{=,=,=|if{call|call}}},=,=,for{=,for{=,=,if{=|if{=}},if{call,cnt},if{=,=|=},+=,call}},=,if{call,ret},call,call,=,for{call},ret an=+:4,-:3,/:2,==:4,Path:2,add:2,and:2,append:2,cm:2,content:2,end:2,fp:2,in:6,is-not:2,len:10,manifest:2,not:2,or:2,partition:2,path:2,print:5,read_text:2,round:2,set:2
-::unit function main @543-618 #7f042ec9
+::unit function main @558-633 #7f042ec9
 ::sig main(argv=None) -> int
 ::algo cfg==,call,=,=,call,call,call,call,call,=,call,call,=,call,call,call,call,call,call,=,call,call,call,call,=,call,call,call,call,=,call,call,call,=,call,call,call,call,call,call,call,=,call,call,call,call,call,call,call,=,call,call,call,call,=,ret an=ArgumentParser:1,add_argument:34,add_parser:9,add_subparsers:1,fn:1,parse_args:1,set_defaults:9
-::content 619
+::content 634
 """cm command line: build / check / audit / drift."""
 from __future__ import annotations
 
@@ -935,6 +937,11 @@ def _print_unit_report(rep: dict, warn: float, fail: float, out=None) -> None:
         return
     print(f"            standalone {rep['standalone_bits']:,} bits, "
           f"marginal {rep['marginal_bits']:,} bits, wasted {rep['wasted_bits']:,} bits", file=out)
+    esc = rep.get("escalated")
+    if esc:
+        print(f"            PARTIAL-CLONE escalation: {esc['reason']} vs "
+              f"{esc['unit']}  {esc['file']} — padding around a copied core "
+              f"does not lower this signal", file=out)
     for m in rep.get("matches", []):
         tag = " EXACT-STRUCTURAL-DUP" if m["exact_structural_dup"] else ""
         sim = m.get("algo_similarity")
@@ -1084,11 +1091,16 @@ def _gate_run(root: Path, warn: float, fail: float, top: int, hook: bool) -> int
                   f"{len(result.all_units())} units)")
         return 0
 
+    current_paths = {r.path for r in result.records}
+    added = [p for p in current_paths if p not in cache]
+    removed = [p for p in cache if p not in current_paths]
+    delta = f" (files +{len(added)}/-{len(removed)})" if added or removed else ""
+
     targets = _changed_units(result, cache)
     if not targets:
         _commit(root, result, _corpus_stats(result.records, light))
         if not hook:
-            print("gate clean: no changed units; baseline refreshed")
+            print(f"gate clean: no changed units{delta}; baseline refreshed")
         return 0
 
     reports = score_targets(targets, result.all_units(scoreable_only=True), top=top)
@@ -1103,8 +1115,13 @@ def _gate_run(root: Path, warn: float, fail: float, top: int, hook: bool) -> int
         return 2 if hook else 1
 
     _commit(root, result, _corpus_stats(result.records, light))
-    if not hook:
-        print(f"gate clean: {len(targets)} changed unit(s) scored, "
+    if hook:
+        # exit-0 stdout is visible in the verbose transcript: leave a trace of
+        # what the gate absorbed so silent commits are reconstructible
+        print(f"cm gate: {len(targets)} new/changed unit(s) scored clean and "
+              f"absorbed into the baseline{delta}")
+    else:
+        print(f"gate clean: {len(targets)} changed unit(s) scored{delta}, "
               f"{len(overlaps)} overlap(s) noted (non-blocking); baseline updated")
         for rep in overlaps[:5]:
             _print_unit_report(rep, warn, fail)
@@ -2476,40 +2493,40 @@ def norm_source(text: str, lang: str, bound: frozenset | None = None) -> str:
 
 ::file cm/redundancy.py
 ::lang python
-::sha 7ab1ed344713
-::lines 188
+::sha cd52213ab5fe
+::lines 214
 ::doc Information-theoretic redundancy scoring.
 ::imports __future__, difflib, lzma, model, normalize, skeleton, zlib
-::unit function standalone_bits @33-36 #a69962e8
+::unit function standalone_bits @42-45 #a69962e8
 ::sig standalone_bits(data: bytes) -> float
 ::algo cfg=if{ret},ret an=*:1,_zlib_deflate:1,float:1,len:1,max:1,not:1
-::unit function _zlib_deflate @39-45 #141ab4fe
+::unit function _zlib_deflate @48-54 #141ab4fe
 ::sig _zlib_deflate(data: bytes, zdict: bytes | None=None) -> bytes
 ::algo cfg=if{=|=},ret an=+:1,-:3,DEFLATED:2,MAX_WBITS:2,Z_DEFAULT_STRATEGY:1,compress:1,compressobj:2,flush:1,|b:1
-::unit function pair_redundancy @48-53 #c97a8b0f
+::unit function pair_redundancy @57-62 #c97a8b0f
 ::sig pair_redundancy(new_norm: str, cand_norm: str) -> float
 ::doc 1 - C(new|cand)/C(new) via zlib preset-dictionary compression.
 ::algo cfg==,=,=,ret an=*:1,-:1,/:1,_zlib_deflate:1,encode:2,float:1,len:1,max:2,standalone_bits:1
-::unit function corpus_conditional_bits @56-62 #37eb9c4f
+::unit function corpus_conditional_bits @65-71 #37eb9c4f
 ::sig corpus_conditional_bits(new_norm: str, ctx_norms: list[str]) -> float
 ::doc C(new | ctx) via lzma: C(ctx + new) - C(ctx).
 ::algo cfg==,if{ret},=,ret an=*:2,+:2,-:1,compress:3,encode:2,float:2,join:1,len:3,max:1,not:1
-::unit function token_similarity @65-66 #67906f29
+::unit function token_similarity @74-75 #67906f29
 ::sig token_similarity(a: str, b: str, cap: int=4000) -> float
 ::algo cfg=ret an=SequenceMatcher:1,ratio:1
-::unit function overlap_blocks @69-93 #1f0ab9aa
+::unit function overlap_blocks @78-102 #1f0ab9aa
 ::sig overlap_blocks(target: Unit, cand: Unit, min_lines: int=3, limit: int=3) -> list[dict]
 ::doc Aligned matching line blocks between two units, in original line numbers.
 ::algo cfg==,=,=,=,=,for{if{cnt},if{cnt},=,call,if{brk}},ret an=+:8,-:2,<:2,>=:1,SequenceMatcher:1,a:6,append:1,b:2,body:2,bound:2,get_matching_blocks:1,join:1,lang:2,len:1,norm_source:2,size:5,split:2,start:4,strip:3,sum:1
-::unit function score_targets @96-164 #d9633fff
+::unit function score_targets @105-188 #36fc6b65
 ::sig score_targets(targets: list[Unit], corpus: list[Unit], top: int=3) -> list[dict]
 ::doc Score each target unit against the corpus. Returns one report dict per unit.
-::algo cfg==,=,for{call},for{=,=,=,if{call,call,cnt},=,=,for{if{cnt},if{cnt},call},call,=,=,=,=,=,=,for{if{cnt},=,=,if{=,if{=}},call},call,call},ret an=*:1,-:1,/:1,<=:1,==:7,>=:1,algo:4,algo_similarity:1,anchor_diff:1,and:4,append:5,end:4,fp:7,max:2,norm:7,not:3,or:3,path:7,qualname:3,round:9,scoreable:2,start:6,trivial:2,update:2
-::unit function verdict @167-187 #25c750c9
+::algo cfg==,=,for{call},for{=,=,=,if{call,call,cnt},=,=,for{if{cnt},if{cnt},call},call,=,=,=,=,=,=,=,for{if{cnt},=,=,=,=,=,if{=|if{=}},=,if{=,if{=}},if{=},call},call,call},ret an=*:2,+:2,-:3,/:1,==:7,>=:6,algo:4,and:8,append:5,end:6,fp:7,is:2,is-not:2,max:2,norm:7,not:3,or:5,path:8,qualname:4,round:9,scoreable:2,start:8,trivial:2,update:2
+::unit function verdict @191-213 #a6232265
 ::sig verdict(rep: dict, warn: float, fail: float) -> str
 ::doc Classify a unit report from two corroborating channels.
-::algo cfg==,=,=,=,if{ret},if{ret},ret an=+:2,>=:5,and:1,get:3,is:1,min:2,or:3
-::content 188
+::algo cfg=if{ret},=,=,=,=,if{ret},if{ret},ret an=+:2,>=:5,and:1,get:4,is:1,min:2,or:3
+::content 214
 """Information-theoretic redundancy scoring.
 
 A compressor stands in for the probability model q: the cost in bits of
@@ -2540,6 +2557,15 @@ from .skeleton import algo_similarity, anchor_diff
 _CTX_SEP = b"\n\x00\n"
 _CTX_CAP = 262_144  # cap on corpus context fed to lzma, in chars
 _TOP_CTX_UNITS = 64
+
+# Partial-clone escalation: a copied core padded with novel wrapper code
+# dilutes the whole-unit compression score below any threshold, but the
+# padding cannot shrink the contiguous overlap with the source, and it only
+# weakly dilutes the algorithm-shape similarity. Escalate on either.
+_ESC_OVERLAP_LINES = 10  # this many overlapping normalized lines is never idiom
+_ESC_OVERLAP_MIN = 6  # ...or fewer, when they cover most of the smaller unit
+_ESC_ALGO = 0.75
+_ESC_ALGO_MIN_SCORE = 0.2
 
 
 def standalone_bits(data: bytes) -> float:
@@ -2645,22 +2671,36 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list
         redundancy = max(corpus_red, best_pair)
 
         matches = []
+        escalated = None
         for score, c in scored[:top]:
             if score <= 0.05:
                 continue
             sim = algo_similarity(t.algo, c.algo)
+            overlap = overlap_blocks(t, c)
+            ov_lines = sum(o["lines"] for o in overlap)
+            min_lines = min(t.end - t.start + 1, c.end - c.start + 1)
+            esc_reason = None
+            if ov_lines >= _ESC_OVERLAP_LINES or (
+                    ov_lines >= _ESC_OVERLAP_MIN and ov_lines >= 0.5 * min_lines):
+                esc_reason = f"{ov_lines} normalized lines overlap"
+            elif sim is not None and sim >= _ESC_ALGO and score >= _ESC_ALGO_MIN_SCORE:
+                esc_reason = f"algorithm shape match (algo-sim {sim:.2f})"
             entry = {
                 "file": c.path, "unit": c.qualname, "span": [c.start, c.end],
                 "score": round(score, 3),
                 "exact_structural_dup": c.fp == t.fp,
                 "token_similarity": round(token_similarity(t.norm, c.norm), 3),
                 "algo_similarity": sim,
-                "overlap": overlap_blocks(t, c),
+                "overlap_lines": ov_lines,
+                "overlap": overlap,
             }
-            if sim is not None and score >= 0.5:
+            if sim is not None and (score >= 0.5 or esc_reason):
                 only_t, only_c = anchor_diff(t.algo, c.algo)
                 if only_t or only_c:
                     entry["anchor_diff"] = {"only_target": only_t, "only_match": only_c}
+            if esc_reason and escalated is None:
+                escalated = {"file": c.path, "unit": c.qualname, "reason": esc_reason,
+                             "overlap_lines": ov_lines, "algo_similarity": sim}
             matches.append(entry)
         report.update(
             marginal_bits=round(marginal),
@@ -2670,6 +2710,7 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list
             best_structure=matches[0]["algo_similarity"] if matches else None,
             wasted_bits=round(base * redundancy),
             exact_dups=[f"{c.path}#{c.qualname}" for c in exact],
+            escalated=escalated,
             matches=matches,
         )
         reports.append(report)
@@ -2688,6 +2729,8 @@ def verdict(rep: dict, warn: float, fail: float) -> str:
     it exists to catch units stitched together from several sources, which
     no single pair reveals.
     """
+    if rep.get("escalated"):
+        return "duplicate"  # partial-clone evidence: padding can't dilute it
     bp = rep.get("best_pair", 0.0)
     cr = rep.get("corpus_redundancy", 0.0)
     bs = rep.get("best_structure")
@@ -3096,7 +3139,7 @@ def anchor_diff(a: str, b: str, cap: int = 6) -> tuple[list[str], list[str]]:
 
 ::file pyproject.toml
 ::lang toml
-::sha 7c848095e2b5
+::sha 2aa6890d7080
 ::lines 17
 ::content 17
 [build-system]
@@ -3105,7 +3148,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cm-compiler"
-version = "0.3.0"
+version = "0.3.1"
 description = "Compile a codebase into a context management artifact (PROJECT.cm) with information-theoretic redundancy checks."
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -3710,8 +3753,8 @@ if __name__ == "__main__":
 
 ::file tests/test_plugin_hook.py
 ::lang python
-::sha a40a8ac8e6c9
-::lines 99
+::sha a65ab1618ef6
+::lines 107
 ::imports contextlib, json, pathlib, subprocess, sys, tempfile, tests.test_incremental, tests.test_redundancy, unittest
 ::unit function run_hook @15-19 #36bdff5a
 ::sig run_hook(payload, cwd=None) -> subprocess.CompletedProcess
@@ -3736,7 +3779,7 @@ if __name__ == "__main__":
 ::unit function pre_payload @60-62 #1f6a5329
 ::sig pre_payload(tool: str, path: Path, **tool_input) -> dict
 ::algo cfg=ret an=str:1
-::unit class TestPrecheck @65-94 #30f31d19
+::unit class TestPrecheck @65-102 #ac3bdf44
 ::sig class TestPrecheck
 ::unit method TestPrecheck.test_duplicate_write_denied_before_disk @66-74 #8e43cd9a
 ::sig test_duplicate_write_denied_before_disk(self)
@@ -3747,10 +3790,13 @@ if __name__ == "__main__":
 ::unit method TestPrecheck.test_edit_that_creates_clone_denied @81-88 #a9ae9795
 ::sig test_edit_that_creates_clone_denied(self)
 ::algo cfg=with{call,call,=},call,call an=/:2,assertEqual:1,assertIn:1,pre_payload:1,repo:1,returncode:1,run_cli:1,run_hook:1,stderr:1,str:1,write_text:1
-::unit method TestPrecheck.test_unmatchable_edit_allowed @90-94 #93708ed5
+::unit method TestPrecheck.test_padded_clone_denied_before_disk @90-96 #1f715294
+::sig test_padded_clone_denied_before_disk(self)
+::algo cfg=with{=},call,call,call an=/:1,assertEqual:1,assertIn:2,pre_payload:1,repo:1,returncode:1,run_hook:1,stderr:2
+::unit method TestPrecheck.test_unmatchable_edit_allowed @98-102 #93708ed5
 ::sig test_unmatchable_edit_allowed(self)
 ::algo cfg=with{=},call an=/:1,assertEqual:1,pre_payload:1,repo:1,returncode:1,run_hook:1
-::content 99
+::content 107
 import contextlib
 import json
 import subprocess
@@ -3760,7 +3806,7 @@ import unittest
 from pathlib import Path
 
 from tests.test_incremental import run_cli
-from tests.test_redundancy import ORIGINAL, PURE_RENAME, UNRELATED
+from tests.test_redundancy import ORIGINAL, PADDED_CLONE, PURE_RENAME, UNRELATED
 
 HOOK = Path(__file__).resolve().parent.parent / "cm-plugin" / "scripts" / "gate_hook.py"
 
@@ -3840,6 +3886,14 @@ class TestPrecheck(unittest.TestCase):
         self.assertEqual(proc.returncode, 2)
         self.assertIn("aggregate_metrics", proc.stderr)
 
+    def test_padded_clone_denied_before_disk(self):
+        # regression for the padding attack: copied core + novel wrapper code
+        with repo(baseline=True) as root:
+            proc = run_hook(pre_payload("Write", root / "b.py", content=PADDED_CLONE))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("PARTIAL-CLONE", proc.stderr)
+        self.assertIn("aggregate_metrics", proc.stderr)
+
     def test_unmatchable_edit_allowed(self):
         with repo(baseline=True) as root:
             proc = run_hook(pre_payload("Edit", root / "a.py",
@@ -3854,47 +3908,50 @@ if __name__ == "__main__":
 
 ::file tests/test_redundancy.py
 ::lang python
-::sha 9f4cb79eda1b
-::lines 161
+::sha d4c49985d09e
+::lines 202
 ::imports cm.redundancy, tests.test_extract, unittest
-::unit function units_of @81-82 #72dd96a1
+::unit function units_of @112-113 #72dd96a1
 ::sig units_of(path, src)
 ::algo cfg=ret an=!=:1,kind:1,make_record:1,units:1
-::unit class TestPairRedundancy @85-115 #cd744672
+::unit class TestPairRedundancy @116-146 #cd744672
 ::sig class TestPairRedundancy
-::unit method TestPairRedundancy.test_pure_rename_scores_high @86-90 #e346933c
+::unit method TestPairRedundancy.test_pure_rename_scores_high @117-121 #e346933c
 ::sig test_pure_rename_scores_high(self)
 ::algo cfg==,=,=,call an=assertGreaterEqual:1,norm:2,pair_redundancy:1,units_of:2
-::unit method TestPairRedundancy.test_unrelated_scores_low @92-96 #0d6c1b0a
+::unit method TestPairRedundancy.test_unrelated_scores_low @123-127 #0d6c1b0a
 ::sig test_unrelated_scores_low(self)
 ::algo cfg==,=,=,call an=assertLessEqual:1,norm:2,pair_redundancy:1,units_of:2
-::unit method TestPairRedundancy.test_pure_rename_same_fingerprint @98-101 #3ad02cf8
+::unit method TestPairRedundancy.test_pure_rename_same_fingerprint @129-132 #3ad02cf8
 ::sig test_pure_rename_same_fingerprint(self)
 ::algo cfg==,=,call an=assertEqual:1,fp:2,units_of:2
-::unit method TestPairRedundancy.test_interface_variant_different_fingerprint @103-107 #1d1bd7c3
+::unit method TestPairRedundancy.test_interface_variant_different_fingerprint @134-138 #1d1bd7c3
 ::sig test_interface_variant_different_fingerprint(self)
 ::algo cfg==,=,call an=assertNotEqual:1,fp:2,units_of:2
-::unit method TestPairRedundancy.test_fickle_pair_distinguished @109-115 #f7e3fab8
+::unit method TestPairRedundancy.test_fickle_pair_distinguished @140-146 #f7e3fab8
 ::sig test_fickle_pair_distinguished(self)
 ::algo cfg==,=,call,call an=assertLess:1,assertNotEqual:1,fp:2,norm:2,pair_redundancy:1,units_of:2
-::unit class TestScoreTargets @118-156 #8bbd0fc7
+::unit class TestScoreTargets @149-197 #bfd5bd68
 ::sig class TestScoreTargets
-::unit method TestScoreTargets.test_pure_rename_flagged_as_exact_duplicate @119-126 #9afa4554
+::unit method TestScoreTargets.test_pure_rename_flagged_as_exact_duplicate @150-157 #9afa4554
 ::sig test_pure_rename_flagged_as_exact_duplicate(self)
 ::algo cfg==,=,call,call,=,call,call an=+:1,assertEqual:2,assertGreaterEqual:1,assertTrue:1,score_targets:1,units_of:3,verdict:1
-::unit method TestScoreTargets.test_interface_variant_flagged_with_anchor_evidence @128-137 #554db7d0
+::unit method TestScoreTargets.test_interface_variant_flagged_with_anchor_evidence @159-168 #554db7d0
 ::sig test_interface_variant_flagged_with_anchor_evidence(self)
 ::algo cfg==,=,=,call,call,call,call,call,call an=+:1,assertEqual:1,assertFalse:1,assertGreaterEqual:1,assertIn:2,assertNotEqual:1,score_targets:1,units_of:3,verdict:1
-::unit method TestScoreTargets.test_novel_function_stays_novel @139-142 #f9ea1a54
+::unit method TestScoreTargets.test_novel_function_stays_novel @170-173 #f9ea1a54
 ::sig test_novel_function_stays_novel(self)
 ::algo cfg==,=,call an=assertEqual:1,score_targets:1,units_of:2,verdict:1
-::unit method TestScoreTargets.test_marginal_bits_smaller_for_clone @144-148 #350c74ac
+::unit method TestScoreTargets.test_marginal_bits_smaller_for_clone @175-179 #350c74ac
 ::sig test_marginal_bits_smaller_for_clone(self)
 ::algo cfg==,=,call an=*:1,+:1,assertLess:1,score_targets:1,units_of:3
-::unit method TestScoreTargets.test_structure_gate_blocks_uncorroborated_duplicate @150-156 #d624af3e
+::unit method TestScoreTargets.test_padded_clone_escalated_despite_diluted_score @181-189 #ab8bf8b1
+::sig test_padded_clone_escalated_despite_diluted_score(self)
+::algo cfg==,=,call,call,call,call an=+:1,assertEqual:2,assertIsNotNone:1,assertLess:1,score_targets:1,units_of:3,verdict:1
+::unit method TestScoreTargets.test_structure_gate_blocks_uncorroborated_duplicate @191-197 #d624af3e
 ::sig test_structure_gate_blocks_uncorroborated_duplicate(self)
 ::algo cfg==,call,=,call,=,call an=assertEqual:3,verdict:3
-::content 161
+::content 202
 import unittest
 
 from tests.test_extract import make_record
@@ -3974,6 +4031,37 @@ FICKLE_LE = '''def check_ratio_lower(self):
     self.assertLessEqual(observed, 0.55, "ratio unexpectedly high for this corpus")
 '''
 
+# The padding attack (found in the wild by an agent session): the copied core
+# of aggregate_metrics buried inside enough novel wrapper code that the
+# whole-unit compression score sinks below every threshold.
+PADDED_CLONE = '''def summarize_batches(entries, batch_size, label="batch"):
+    """Summarize entries in labeled batches with an envelope around the report."""
+    if entries is None:
+        raise ValueError("entries may not be None for " + label)
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive, got " + str(batch_size))
+    header = {"label": label, "received": len(entries)}
+    cleaned = []
+    for candidate in entries:
+        if candidate is None:
+            continue
+        cleaned.append(candidate)
+    dropped = len(entries) - len(cleaned)
+    rows = []
+    bucket = []
+    for sample in cleaned:
+        bucket.append(sample.value * sample.weight)
+        if len(bucket) >= batch_size:
+            total = sum(bucket)
+            rows.append({"count": len(bucket), "total": total, "mean": total / len(bucket)})
+            bucket = []
+    if bucket:
+        total = sum(bucket)
+        rows.append({"count": len(bucket), "total": total, "mean": total / len(bucket)})
+    footer = {"label": label, "rows": len(rows), "dropped": dropped}
+    return {"header": header, "rows": rows, "footer": footer}
+'''
+
 
 def units_of(path, src):
     return [u for u in make_record(path, "python", src).units if u.kind != "class"]
@@ -4043,6 +4131,16 @@ class TestScoreTargets(unittest.TestCase):
         [clone_rep] = score_targets(units_of("n1.py", PURE_RENAME), corpus)
         # the corpus predicts the clone far better than it predicts anything novel
         self.assertLess(clone_rep["marginal_bits"], clone_rep["standalone_bits"] * 0.5)
+
+    def test_padded_clone_escalated_despite_diluted_score(self):
+        corpus = units_of("a.py", ORIGINAL) + units_of("c.py", UNRELATED)
+        [rep] = score_targets(units_of("new.py", PADDED_CLONE), corpus)
+        # the padding must have diluted the aggregate score below the fail bar —
+        # otherwise this fixture no longer tests the escalation path
+        self.assertLess(rep["best_pair"], 0.80)
+        self.assertIsNotNone(rep["escalated"])
+        self.assertEqual(rep["escalated"]["unit"], "aggregate_metrics")
+        self.assertEqual(verdict(rep, 0.55, 0.80), "duplicate")
 
     def test_structure_gate_blocks_uncorroborated_duplicate(self):
         rep = {"best_pair": 0.9, "corpus_redundancy": 0.5, "best_structure": 0.2}

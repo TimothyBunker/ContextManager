@@ -1,6 +1,6 @@
 {
   "name": "cm",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Redundancy gate for agent writes: incremental codebase compiler (PROJECT.cm) plus a write interlock that blocks duplicate code with evidence — where it already lives, why it matches, how to resolve.",
   "author": {
     "name": "ContextManager"

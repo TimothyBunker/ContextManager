@@ -77,6 +77,37 @@ FICKLE_LE = '''def check_ratio_lower(self):
     self.assertLessEqual(observed, 0.55, "ratio unexpectedly high for this corpus")
 '''
 
+# The padding attack (found in the wild by an agent session): the copied core
+# of aggregate_metrics buried inside enough novel wrapper code that the
+# whole-unit compression score sinks below every threshold.
+PADDED_CLONE = '''def summarize_batches(entries, batch_size, label="batch"):
+    """Summarize entries in labeled batches with an envelope around the report."""
+    if entries is None:
+        raise ValueError("entries may not be None for " + label)
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive, got " + str(batch_size))
+    header = {"label": label, "received": len(entries)}
+    cleaned = []
+    for candidate in entries:
+        if candidate is None:
+            continue
+        cleaned.append(candidate)
+    dropped = len(entries) - len(cleaned)
+    rows = []
+    bucket = []
+    for sample in cleaned:
+        bucket.append(sample.value * sample.weight)
+        if len(bucket) >= batch_size:
+            total = sum(bucket)
+            rows.append({"count": len(bucket), "total": total, "mean": total / len(bucket)})
+            bucket = []
+    if bucket:
+        total = sum(bucket)
+        rows.append({"count": len(bucket), "total": total, "mean": total / len(bucket)})
+    footer = {"label": label, "rows": len(rows), "dropped": dropped}
+    return {"header": header, "rows": rows, "footer": footer}
+'''
+
 
 def units_of(path, src):
     return [u for u in make_record(path, "python", src).units if u.kind != "class"]
@@ -146,6 +177,16 @@ class TestScoreTargets(unittest.TestCase):
         [clone_rep] = score_targets(units_of("n1.py", PURE_RENAME), corpus)
         # the corpus predicts the clone far better than it predicts anything novel
         self.assertLess(clone_rep["marginal_bits"], clone_rep["standalone_bits"] * 0.5)
+
+    def test_padded_clone_escalated_despite_diluted_score(self):
+        corpus = units_of("a.py", ORIGINAL) + units_of("c.py", UNRELATED)
+        [rep] = score_targets(units_of("new.py", PADDED_CLONE), corpus)
+        # the padding must have diluted the aggregate score below the fail bar —
+        # otherwise this fixture no longer tests the escalation path
+        self.assertLess(rep["best_pair"], 0.80)
+        self.assertIsNotNone(rep["escalated"])
+        self.assertEqual(rep["escalated"]["unit"], "aggregate_metrics")
+        self.assertEqual(verdict(rep, 0.55, 0.80), "duplicate")
 
     def test_structure_gate_blocks_uncorroborated_duplicate(self):
         rep = {"best_pair": 0.9, "corpus_redundancy": 0.5, "best_structure": 0.2}

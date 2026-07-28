@@ -29,6 +29,15 @@ _CTX_SEP = b"\n\x00\n"
 _CTX_CAP = 262_144  # cap on corpus context fed to lzma, in chars
 _TOP_CTX_UNITS = 64
 
+# Partial-clone escalation: a copied core padded with novel wrapper code
+# dilutes the whole-unit compression score below any threshold, but the
+# padding cannot shrink the contiguous overlap with the source, and it only
+# weakly dilutes the algorithm-shape similarity. Escalate on either.
+_ESC_OVERLAP_LINES = 10  # this many overlapping normalized lines is never idiom
+_ESC_OVERLAP_MIN = 6  # ...or fewer, when they cover most of the smaller unit
+_ESC_ALGO = 0.75
+_ESC_ALGO_MIN_SCORE = 0.2
+
 
 def standalone_bits(data: bytes) -> float:
     if not data:
@@ -133,22 +142,36 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list
         redundancy = max(corpus_red, best_pair)
 
         matches = []
+        escalated = None
         for score, c in scored[:top]:
             if score <= 0.05:
                 continue
             sim = algo_similarity(t.algo, c.algo)
+            overlap = overlap_blocks(t, c)
+            ov_lines = sum(o["lines"] for o in overlap)
+            min_lines = min(t.end - t.start + 1, c.end - c.start + 1)
+            esc_reason = None
+            if ov_lines >= _ESC_OVERLAP_LINES or (
+                    ov_lines >= _ESC_OVERLAP_MIN and ov_lines >= 0.5 * min_lines):
+                esc_reason = f"{ov_lines} normalized lines overlap"
+            elif sim is not None and sim >= _ESC_ALGO and score >= _ESC_ALGO_MIN_SCORE:
+                esc_reason = f"algorithm shape match (algo-sim {sim:.2f})"
             entry = {
                 "file": c.path, "unit": c.qualname, "span": [c.start, c.end],
                 "score": round(score, 3),
                 "exact_structural_dup": c.fp == t.fp,
                 "token_similarity": round(token_similarity(t.norm, c.norm), 3),
                 "algo_similarity": sim,
-                "overlap": overlap_blocks(t, c),
+                "overlap_lines": ov_lines,
+                "overlap": overlap,
             }
-            if sim is not None and score >= 0.5:
+            if sim is not None and (score >= 0.5 or esc_reason):
                 only_t, only_c = anchor_diff(t.algo, c.algo)
                 if only_t or only_c:
                     entry["anchor_diff"] = {"only_target": only_t, "only_match": only_c}
+            if esc_reason and escalated is None:
+                escalated = {"file": c.path, "unit": c.qualname, "reason": esc_reason,
+                             "overlap_lines": ov_lines, "algo_similarity": sim}
             matches.append(entry)
         report.update(
             marginal_bits=round(marginal),
@@ -158,6 +181,7 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list
             best_structure=matches[0]["algo_similarity"] if matches else None,
             wasted_bits=round(base * redundancy),
             exact_dups=[f"{c.path}#{c.qualname}" for c in exact],
+            escalated=escalated,
             matches=matches,
         )
         reports.append(report)
@@ -176,6 +200,8 @@ def verdict(rep: dict, warn: float, fail: float) -> str:
     it exists to catch units stitched together from several sources, which
     no single pair reveals.
     """
+    if rep.get("escalated"):
+        return "duplicate"  # partial-clone evidence: padding can't dilute it
     bp = rep.get("best_pair", 0.0)
     cr = rep.get("corpus_redundancy", 0.0)
     bs = rep.get("best_structure")

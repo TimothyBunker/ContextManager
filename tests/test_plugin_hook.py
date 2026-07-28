@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from tests.test_incremental import run_cli
-from tests.test_redundancy import ORIGINAL, PURE_RENAME, UNRELATED
+from tests.test_redundancy import ORIGINAL, PADDED_CLONE, PURE_RENAME, UNRELATED
 
 HOOK = Path(__file__).resolve().parent.parent / "cm-plugin" / "scripts" / "gate_hook.py"
 
@@ -85,6 +85,14 @@ class TestPrecheck(unittest.TestCase):
             proc = run_hook(pre_payload("Edit", root / "c.py",
                                         old_string=UNRELATED, new_string=PURE_RENAME))
         self.assertEqual(proc.returncode, 2)
+        self.assertIn("aggregate_metrics", proc.stderr)
+
+    def test_padded_clone_denied_before_disk(self):
+        # regression for the padding attack: copied core + novel wrapper code
+        with repo(baseline=True) as root:
+            proc = run_hook(pre_payload("Write", root / "b.py", content=PADDED_CLONE))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("PARTIAL-CLONE", proc.stderr)
         self.assertIn("aggregate_metrics", proc.stderr)
 
     def test_unmatchable_edit_allowed(self):

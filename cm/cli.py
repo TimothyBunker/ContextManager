@@ -104,6 +104,11 @@ def _print_unit_report(rep: dict, warn: float, fail: float, out=None) -> None:
         return
     print(f"            standalone {rep['standalone_bits']:,} bits, "
           f"marginal {rep['marginal_bits']:,} bits, wasted {rep['wasted_bits']:,} bits", file=out)
+    esc = rep.get("escalated")
+    if esc:
+        print(f"            PARTIAL-CLONE escalation: {esc['reason']} vs "
+              f"{esc['unit']}  {esc['file']} — padding around a copied core "
+              f"does not lower this signal", file=out)
     for m in rep.get("matches", []):
         tag = " EXACT-STRUCTURAL-DUP" if m["exact_structural_dup"] else ""
         sim = m.get("algo_similarity")
@@ -253,11 +258,16 @@ def _gate_run(root: Path, warn: float, fail: float, top: int, hook: bool) -> int
                   f"{len(result.all_units())} units)")
         return 0
 
+    current_paths = {r.path for r in result.records}
+    added = [p for p in current_paths if p not in cache]
+    removed = [p for p in cache if p not in current_paths]
+    delta = f" (files +{len(added)}/-{len(removed)})" if added or removed else ""
+
     targets = _changed_units(result, cache)
     if not targets:
         _commit(root, result, _corpus_stats(result.records, light))
         if not hook:
-            print("gate clean: no changed units; baseline refreshed")
+            print(f"gate clean: no changed units{delta}; baseline refreshed")
         return 0
 
     reports = score_targets(targets, result.all_units(scoreable_only=True), top=top)
@@ -272,8 +282,13 @@ def _gate_run(root: Path, warn: float, fail: float, top: int, hook: bool) -> int
         return 2 if hook else 1
 
     _commit(root, result, _corpus_stats(result.records, light))
-    if not hook:
-        print(f"gate clean: {len(targets)} changed unit(s) scored, "
+    if hook:
+        # exit-0 stdout is visible in the verbose transcript: leave a trace of
+        # what the gate absorbed so silent commits are reconstructible
+        print(f"cm gate: {len(targets)} new/changed unit(s) scored clean and "
+              f"absorbed into the baseline{delta}")
+    else:
+        print(f"gate clean: {len(targets)} changed unit(s) scored{delta}, "
               f"{len(overlaps)} overlap(s) noted (non-blocking); baseline updated")
         for rep in overlaps[:5]:
             _print_unit_report(rep, warn, fail)

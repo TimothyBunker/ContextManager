@@ -41,6 +41,13 @@ class TestIncrementalScan(unittest.TestCase):
         self.assertEqual(second.changed, ["c.py"])
         self.assertEqual(second.cache_hits, 1)
 
+    def test_bom_file_still_parses(self):
+        # Windows editors often write a UTF-8 BOM; it must not break extraction
+        (self.root / "bom.py").write_bytes(b"\xef\xbb\xbf" + ORIGINAL.encode("utf-8"))
+        rec = load_file(self.root / "bom.py", "bom.py")
+        self.assertEqual([u.qualname for u in rec.units], ["aggregate_metrics"])
+        self.assertFalse(rec.text.startswith("﻿"))
+
     def test_cached_records_match_fresh_analysis(self):
         first = scan_tree(self.root)
         save_cache(self.root, first)
