@@ -1,0 +1,14 @@
+{
+  "name": "cm-marketplace",
+  "description": "The cm context manager: compile your codebase into PROJECT.cm and gate agent writes against redundancy.",
+  "owner": {
+    "name": "TimothyBunker"
+  },
+  "plugins": [
+    {
+      "name": "cm",
+      "source": "./cm-plugin",
+      "description": "Redundancy gate for agent writes: incremental codebase compiler (PROJECT.cm) plus a write interlock that blocks duplicate code with evidence."
+    }
+  ]
+}

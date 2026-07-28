@@ -1,0 +1,3969 @@
+::cm 0.2
+::project ContextManager
+::root .
+::generated 2026-07-28T02:44:26+00:00
+::stats files=32 units=166 functions=144 raw_bytes=124580 info_bits=155840 structural_redundancy=0.305
+
+::file .claude-plugin/marketplace.json
+::lang json
+::sha a6b7cfaeb738
+::lines 14
+::content 14
+{
+  "name": "cm-marketplace",
+  "owner": {
+    "name": "ContextManager"
+  },
+  "plugins": [
+    {
+      "name": "cm",
+      "source": "./cm-plugin",
+      "description": "Redundancy gate for agent writes: incremental codebase compiler (PROJECT.cm) plus a write interlock that blocks duplicate code with evidence."
+    }
+  ]
+}
+
+::endfile
+
+::file .cmignore
+::lang text
+::sha ba9d9e0f0582
+::lines 3
+::content 3
+# cm's own ignore file. Defaults already exclude VCS dirs, caches,
+# binaries, and *.cm outputs; add project-specific exclusions here.
+
+::endfile
+
+::file CLAUDE.md
+::lang markdown
+::sha f7ceaf99bc07
+::lines 15
+::doc cm — redundancy gate
+::content 15
+<!-- cm:protocol:begin -->
+## cm — redundancy gate
+
+This repo is compiled into PROJECT.cm (every file's functions, fingerprints,
+and algorithm skeletons). The goal is token efficiency: never rewrite what
+the codebase already contains.
+
+- After creating or modifying code, `cm gate` runs (via hook, or run it
+  yourself). It recompiles incrementally and scores only what changed.
+- If it reports DUPLICATE, stop: read the cited unit (file@lines, anchor
+  diff explains any difference) and reuse or extend it instead.
+- If the similarity is intentional, run `cm accept <fp>` and continue.
+- PROJECT.cm and the baseline update automatically when the gate passes.
+<!-- cm:protocol:end -->
+
+::endfile
+
+::file README.md
+::lang markdown
+::sha 2b85fd4fa1fe
+::lines 204
+::doc cm — the context manager compiler
+::content 204
+# cm — the context manager compiler
+
+`cm` compiles a codebase into a single readable, structured artifact — **`PROJECT.cm`** —
+and polices the codebase with one objective: **accomplish the task with the least
+amount of redundant code.**
+
+The goal is **token efficiency**. The compiler recompiles incrementally on
+every change, so the global picture is never stale — and the write gate tells
+an agent, at write time and with evidence, *"you already wrote this; it lives
+here"*, holding the write from standing until the match is investigated. It is
+deliberately not (yet) a retrieval system, and it does not manage what an
+agent keeps in context — normal context behavior is untouched.
+
+Zero dependencies. Python 3.10+. `pip install -e .` for the `cm` command, or run
+`python -m cm` straight from the repo.
+
+## Commands
+
+```
+cm init [path] [--hooks]     install into a repo: baseline + agent protocol (+ write-gate hook)
+cm gate [path] [--hook]      recompile incrementally, score changed units, block on duplicates
+cm accept <fp...>            mark a flagged fingerprint as reviewed-and-intentional
+cm build [path] [--full]     compile the tree -> PROJECT.cm (incremental by default)
+cm status [path]             is the baseline current? what changed since it?
+cm check <files> --root .    score specific files for redundancy vs the tree
+cm audit [path]              pairwise redundancy self-audit of the whole tree
+cm drift <manifest>          [experimental] context-vs-PROJECT.cm divergence
+```
+
+`--json` on check/audit/drift emits full reports for machine consumers.
+
+## The agentic loop
+
+`cm init --hooks` installs three things: the compiled baseline (`PROJECT.cm`
+plus the `.cm/` cache), a protocol section in CLAUDE.md/AGENTS.md, and a
+Claude Code PostToolUse hook on Write/Edit. From then on every write triggers
+`cm gate`:
+
+1. **Incremental recompile.** Unchanged files restore from the cache by
+   size+mtime (content hash as fallback); only edited files are re-analyzed.
+   The corpus the score runs against is never stale.
+2. **Score what changed.** Units whose fingerprint is new to their file are
+   scored against the whole current tree. Moved code and renamed locals keep
+   their fingerprints and are not re-flagged; comment-only edits pass through.
+3. **Commit or block.** No duplicates: the baseline advances automatically,
+   so PROJECT.cm is always current. Duplicates: the hook exits 2, feeding the
+   *where* (file@lines), the *why* (overlap blocks + anchor diff), and the
+   resolution back to the agent. The baseline stays frozen until the agent
+   reuses the existing unit or explicitly runs `cm accept <fp>`.
+
+Overlap-level findings are reported but never block. A warm gate on this repo
+runs in ~300 ms.
+
+## Claude Code plugin
+
+[`cm-plugin/`](cm-plugin/) packages the loop for distribution, and this repo
+doubles as a local plugin marketplace:
+
+- **hook** — PostToolUse on Write/Edit runs a safe wrapper
+  ([gate_hook.py](cm-plugin/scripts/gate_hook.py)): it walks up from the
+  edited file, gates only repos that opted in via `cm init` (a `.cm/` or
+  PROJECT.cm exists), and exits silently on any infrastructure failure — a
+  broken gate must never block unrelated work.
+- **skill** — `redundancy-gate` teaches the agent the judgment half: how to
+  read a block (anchor diffs, algo-sim, overlaps), the resolution protocol
+  (reuse > extend > `cm accept --reason`), and why dodging the gate by
+  renaming doesn't work.
+- **commands** — `/cm:init`, `/cm:status`, `/cm:audit`.
+
+Install (needs `cm` on PATH — `pip install -e .` or pipx — the hook falls
+back to `python -m cm`):
+
+```
+/plugin marketplace add D:\ContextManager
+/plugin install cm@cm-marketplace
+```
+
+Then in any repo you want managed: `cm init .` — plain, without `--hooks`;
+the plugin already provides the hook, and a second one would gate every
+write twice.
+
+## The .cm format
+
+One file, line-oriented, human- and LLM-readable. `::` lines are directives; file
+contents are embedded verbatim under a declared line count (so content can safely
+contain `::`). `.cmignore` (gitignore syntax) controls scope; `*.cm` is always
+excluded so the compiler never ingests its own output.
+
+```
+::cm 0.2
+::project ContextManager
+::stats files=20 units=120 functions=102 raw_bytes=86977 info_bits=103104 structural_redundancy=0.27
+
+::file cm/ignore.py
+::lang python
+::sha 4b0c1de9a2f1
+::lines 122
+::doc Gitignore-style rules for .cmignore.
+::imports dataclasses, pathlib, re
+::unit function _glob_to_regex @33-71 #8b3bbd1f
+::sig _glob_to_regex(pat: str) -> str
+::doc Translate a gitignore glob into a regex over posix relpaths.
+::algo cfg==,while{=,if{...}},ret an=+:6,<:4,==:4,append:7,escape:2,len:1,startswith:3
+::content 122
+...122 lines verbatim...
+::endfile
+```
+
+Each unit (function / method / class / file) carries a span, its doc line, a
+**structural fingerprint** `#fp`, and an **algorithm skeleton** `::algo`. The
+fingerprint hashes the unit's *normalized* body under two-tier renaming:
+comments stripped, strings/numbers collapsed, and **bound** names — params,
+locals, the unit's own name — alpha-renamed to `V0, V1, ...`, while
+**anchors** — builtins, imports, attributes, called functions, operators: the
+names code reaches *outside itself* for — are kept verbatim. A pure-rename
+clone therefore has the *same fingerprint* as its original, but
+`assertGreaterEqual` vs `assertLessEqual` no longer collide. The skeleton
+records what survives rewriting entirely: nested control-flow shape (`cfg=`),
+the anchor multiset (`an=`), recursion/generator flags (`fl=`).
+
+Extractors: Python (ast, exact), JavaScript/TypeScript (masked regex +
+brace-matching), other code languages as file-level units, prose/config indexed
+without units.
+
+## The information model
+
+Your cross-entropy intuition, made computable. A compressor stands in for the
+probability model: the cost of encoding `x` is `C(x) = len(compress(x)) * 8`
+bits, an upper bound on cross-entropy under the compressor's model. Everything
+is normalized first, so naming and comments don't hide structure.
+
+**Redundancy of a new unit `u`** against corpus `K`:
+
+```
+R(u) = 1 - C(u | K) / C(u)        C(u|K) measured by conditional compression
+```
+
+`R ~ 0`: the corpus can't predict `u` — genuinely novel information.
+`R ~ 1`: the corpus already predicts `u` almost entirely — you paid tokens for
+information the project already had. The scenario this is built for: an agent
+holding context slice `S` writes `u`; `C(u | S)` is large (its context didn't
+predict it) but `C(u | K)` is near zero (the full project does). That gap *is*
+the "cross entropy went up" alarm — and it is localizable:
+
+- **where**: the corpus unit maximizing conditional compression savings
+  (pairwise zlib with the candidate's normalized body as preset dictionary;
+  corpus-level lzma over the best candidates for the overall verdict)
+- **why**: aligned matching line blocks between the two units, reported in
+  original line numbers (alignment runs on per-line normalized text, so renamed
+  clones still align)
+
+Verdicts compose two channels. The specific best-pair (info) score drives them
+(`--warn` 0.55 / `--fail` 0.80 by default), but a "duplicate" claim must be
+*corroborated by structure*: an info-hot match whose algorithm skeleton
+disagrees (similarity < 0.5) is shared idiom, not duplication, and is
+downgraded to "overlap". When a near-clone is flagged, the report prints the
+**anchor diff** — `anchors only here: assertGreaterEqual | only there:
+assertLessEqual` — the discrete evidence of what actually distinguishes the
+pair. The corpus-conditional score is held to a higher bar because normalized
+same-language code is always somewhat cross-predictable — that's a language
+prior, not duplication; it exists to catch units stitched together from
+several sources. Ranking uses **wasted bits** (`C(u) * R`), not the ratio:
+one half-duplicated 40-line function outranks two structurally identical
+3-line helpers.
+
+**Drift** of a context slice `S` against the project: every section of
+PROJECT.cm has a fingerprint; a manifest of the fingerprints currently
+in-context yields `C(P | S)` — the bits of project information the context is
+missing or holding stale, i.e. how much syncing costs:
+
+```
+cm drift context_manifest.txt      # fp8 | path | path#qualname@fp8, one per line
+DRIFT vs PROJECT.cm: 31/90 units in context, 0 stale, 59 missing
+  bits to sync: 58,920 (~7.2 KiB of novel information)
+```
+
+## Known limits (v0)
+
+- Structure and information are still not *behavior*: a corroborated duplicate
+  whose anchor diff is one flipped comparator may be a deliberate mirror.
+  Only the behavioral layer (`cm probe`, roadmap) can certify equivalence;
+  until then the anchor diff makes such pairs one-glance reviewable.
+- JS/TS bound-name detection is heuristic (declarations, params, catch), and
+  JS skeletons are flat keyword-at-depth sequences rather than exact trees.
+  Misclassified names fail toward anchors — i.e. toward fewer false positives.
+- JS/TS extraction is regex-based: top-level functions, arrows, classes; class
+  methods are not yet individual units. Tree-sitter is the upgrade path.
+- Compression is an upper bound on cross-entropy; scores are comparative, not
+  absolute probabilities.
+
+## Roadmap
+
+- `cm probe` — the behavior channel: run flagged pairs on shared inputs
+  (reusing the original's tests where they exist), report an agreement rate
+  or a divergence witness — the input where the pair differs.
+- `cm annotate` — LLM-generated `::doc` lines for undocumented units.
+- Candidate pruning for very large corpora (fingerprint buckets, anchor
+  prefilters before compression) so gate latency stays flat as repos grow.
+- A PreToolUse variant of the gate that scores content *before* it reaches
+  disk (today's PostToolUse hook flags immediately after the write lands).
+- Retrieval (`cm get`/`cm find`, MCP slices) — deferred by design for now;
+  the current product is the gate, not context serving.
+- Tree-sitter extractors; per-language keyword tables beyond py/js/ts.
+
+::endfile
+
+::file cm-plugin/.claude-plugin/plugin.json
+::lang json
+::sha dfa8f6a40592
+::lines 9
+::content 9
+{
+  "name": "cm",
+  "version": "0.2.0",
+  "description": "Redundancy gate for agent writes: incremental codebase compiler (PROJECT.cm) plus a write interlock that blocks duplicate code with evidence — where it already lives, why it matches, how to resolve.",
+  "author": {
+    "name": "ContextManager"
+  }
+}
+
+::endfile
+
+::file cm-plugin/commands/audit.md
+::lang markdown
+::sha 1da52f41daaa
+::lines 17
+::content 17
+---
+description: Run a cm redundancy audit and propose consolidations
+---
+
+Run `cm audit --limit 10` in the repository root with the Bash tool.
+
+Then, from the output:
+1. Group findings that reference each other (A matches B and B matches A are
+   one cluster, not two findings).
+2. Rank clusters by total wasted bits.
+3. For each of the top clusters, read the units involved and propose a
+   concrete consolidation: which unit to keep, which callers to redirect, and
+   whether the anchor diff indicates a deliberate variant that should instead
+   be `cm accept`-ed with a reason.
+4. Present the proposals to the user. Do NOT apply refactors without the
+   user's confirmation.
+
+::endfile
+
+::file cm-plugin/commands/init.md
+::lang markdown
+::sha d530ddcbcc8b
+::lines 15
+::content 15
+---
+description: Install cm into this repository (baseline + protocol)
+---
+
+Initialize the cm context manager in the current repository:
+
+1. Verify the `cm` command exists (`cm --version`). If missing, tell the user
+   to run `pip install -e <path-to-cm-repo>` (or pipx) first and stop.
+2. Run `cm init .` — WITHOUT `--hooks`: this plugin already provides the
+   write-gate hook, and installing a second hook would run the gate twice per
+   write.
+3. Report what was installed (baseline stats, protocol location) and mention
+   that from now on every Write/Edit is gated automatically: duplicates will
+   be blocked with evidence until resolved or accepted.
+
+::endfile
+
+::file cm-plugin/commands/status.md
+::lang markdown
+::sha c8bcd55637ee
+::lines 13
+::content 13
+---
+description: Check whether the cm baseline is current and reconcile it
+---
+
+Run `cm status` in the repository root with the Bash tool.
+
+- If it reports up to date: tell the user in one line.
+- If it reports STALE: run `cm gate` to reconcile. If the gate passes, report
+  what changed. If the gate BLOCKS, follow the redundancy-gate skill's
+  resolution protocol (read the matched units, then reuse, extend, or
+  `cm accept --reason`).
+- If it reports no baseline: suggest `/cm:init`.
+
+::endfile
+
+::file cm-plugin/hooks/hooks.json
+::lang json
+::sha f30e5478ac44
+::lines 16
+::content 16
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/gate_hook.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
+
+::endfile
+
+::file cm-plugin/scripts/gate_hook.py
+::lang python
+::sha c8a282a60827
+::lines 62
+::doc cm write-gate hook for Claude Code (PostToolUse on Write/Edit).
+::imports json, os, shutil, subprocess, sys
+::unit function find_cm_root @19-27 #94143d6c
+::sig find_cm_root(start: str) -> str | None
+::algo cfg==,while{if{ret},=,if{ret},=} an===:1,abspath:1,dirname:1,isdir:1,isfile:1,join:2,or:1,path:6,|b:1
+::unit function main @30-57 #7cd9bda7
+::sig main() -> int
+::algo cfg=try{=|=},=,=,=,=,if{ret},=,=,try{=|ret},if{if{call},call,ret},ret an===:1,TimeoutExpired:1,dirname:1,environ:1,executable:1,find_cm_root:1,get:4,getcwd:1,hasattr:1,is:1,load:1,or:4,path:1,reconfigure:1,returncode:1,run:1,stderr:4,stdin:1,stdout:1,which:1,write:1
+::content 62
+#!/usr/bin/env python3
+"""cm write-gate hook for Claude Code (PostToolUse on Write/Edit).
+
+Safe to install globally: it gates only repos that opted in (a `.cm/` baseline
+or PROJECT.cm exists somewhere above the edited file), and it exits silently
+when cm isn't installed or anything unexpected happens — a broken gate must
+never block unrelated work.
+
+Exit codes: 0 = pass/no-op, 2 = blocked (cm's findings are relayed on stderr,
+which Claude Code feeds back to the model).
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+
+def find_cm_root(start: str) -> str | None:
+    d = os.path.abspath(start)
+    while True:
+        if os.path.isdir(os.path.join(d, ".cm")) or os.path.isfile(os.path.join(d, "PROJECT.cm")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
+def main() -> int:
+    try:
+        payload = json.load(sys.stdin)
+    except (ValueError, OSError):
+        payload = {}
+    tool_input = payload.get("tool_input") or {}
+    target = tool_input.get("file_path") or tool_input.get("notebook_path")
+    start = os.path.dirname(target) if target else (payload.get("cwd") or os.getcwd())
+    root = find_cm_root(start)
+    if root is None:
+        return 0  # repo has not opted in to cm
+
+    cm = shutil.which("cm")
+    cmd = [cm, "gate", root, "--hook"] if cm else [sys.executable, "-m", "cm", "gate", root, "--hook"]
+    try:
+        # pin both sides to UTF-8: Windows pipes otherwise default to the ANSI
+        # codepage and non-ASCII in findings would crash the decode
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
+                              encoding="utf-8", errors="replace",
+                              env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    except (OSError, subprocess.TimeoutExpired):
+        return 0
+    if proc.returncode == 2:
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.write(proc.stderr or proc.stdout)
+        return 2
+    return 0  # pass, or cm missing/crashed — never block on infrastructure failure
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+::endfile
+
+::file cm-plugin/skills/redundancy-gate/SKILL.md
+::lang markdown
+::sha 15390ade7832
+::lines 64
+::doc cm — resolving the redundancy gate
+::content 64
+---
+name: redundancy-gate
+description: Resolve cm redundancy-gate blocks and manage codebase redundancy. Use when a write is blocked with "cm gate BLOCKED" or DUPLICATE findings, when deciding whether to reuse existing code versus accept intentional similarity, or when working with PROJECT.cm, unit fingerprints, ::algo skeletons, or the cm commands (gate, accept, audit, status, check).
+---
+
+# cm — resolving the redundancy gate
+
+This repo is compiled by `cm` into `PROJECT.cm`: every file's functions with
+signatures, docs, structural fingerprints, and `::algo` skeletons. After every
+write, `cm gate` recompiles incrementally and scores your changed units against
+the whole tree. A DUPLICATE verdict means the codebase very likely already
+contains what you just wrote. The goal is token efficiency: never re-write,
+re-review, or re-carry code the project already has.
+
+## Reading a block
+
+Each flagged unit shows:
+
+- `-> 0.93 vs <unit>  <file>@<lines>` — **where** the existing code lives.
+- `token-sim` / `algo-sim` — text similarity vs algorithm-shape similarity.
+- `EXACT-STRUCTURAL-DUP` — same fingerprint: your unit is a rename of the match
+  (fingerprints rename params/locals but preserve anchors — the calls,
+  attributes, and operators the code uses).
+- `anchors only here: X | only there: Y` — the exact operations that differ.
+  This line is the heart of the decision: it is the discrete evidence of
+  whether you wrote the same function or a meaningfully different one.
+- `overlap a.py:5-43 ~ b.py:33-71` — the aligned line ranges.
+
+## Resolution protocol (in order)
+
+1. **Read the matched unit at the cited file@lines. Never skip this.**
+2. Decide, based on what you read:
+   - **Same behavior needed** → delete your new unit and import/call the
+     existing one. This is the expected common case.
+   - **Existing unit almost fits** → extend or generalize the *existing* unit
+     in place (add a parameter, widen a type) so one copy serves both callers.
+   - **The anchor diff is the point** (e.g. `>=` vs `<=`, `.amount` vs
+     `.value` — a deliberate mirror or interface variant) → accept it with a
+     recorded reason:  `cm accept <fp> --reason "mirror of X for lower bound"`.
+     The fp appears in the block output next to each finding.
+3. **Never dodge the gate**: renaming identifiers, reshuffling lines, or
+   deleting the original to silence the block does not work (fingerprints
+   survive renames; the gate re-scores every write) and defeats the purpose.
+4. The baseline stays frozen while blocked. It advances automatically the next
+   time the gate passes — no manual rebuild needed.
+
+## Before writing a new helper
+
+`PROJECT.cm` at the repo root is grep-friendly. Before writing a utility,
+search it for the anchors you are about to use (`::sig`, `::doc`, and `::algo`
+lines carry names, docs, and called functions). Thirty seconds of grep is
+cheaper than a gate round-trip.
+
+## Commands
+
+```
+cm status                 is the baseline current; what changed
+cm gate [path]            recompile + score changed units (the hook runs this)
+cm accept <fp> --reason   record a reviewed-and-intentional similarity
+cm audit --limit 10       whole-tree redundancy audit, ranked by wasted bits
+cm check <file>           score one file against the tree
+cm build --full           force a full recompile of PROJECT.cm
+```
+
+::endfile
+
+::file cm/__init__.py
+::lang python
+::sha 227263aa3f44
+::lines 4
+::doc cm — compile a codebase into a context management artifact (PROJECT.cm).
+::content 4
+"""cm — compile a codebase into a context management artifact (PROJECT.cm)."""
+
+__version__ = "0.2.0"
+
+::endfile
+
+::file cm/__main__.py
+::lang python
+::sha 307299fda7b7
+::lines 5
+::imports cli
+::content 5
+from .cli import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+::endfile
+
+::file cm/cache.py
+::lang python
+::sha 7c1d4bdc211e
+::lines 124
+::doc Incremental compile state: the .cm/ directory.
+::imports __future__, gzip, json, model, os, pathlib
+::unit function cm_dir @24-25 #c723586a
+::sig cm_dir(root: Path) -> Path
+::algo cfg=ret an=/:1
+::unit function _unit_to_dict @28-34 #4512277c
+::sig _unit_to_dict(u: Unit) -> dict
+::algo cfg=ret an=algo:1,bound:1,doc:1,end:1,fp:1,kind:1,name:1,norm:1,qualname:1,scoreable:1,signature:1,sorted:1,start:1,trivial:1
+::unit function _unit_from_dict @37-45 #252c1fbe
+::sig _unit_from_dict(d: dict, lines: list[str], path: str, lang: str) -> Unit
+::algo cfg=ret an=-:1,Unit:1,frozenset:1,get:1,join:1
+::unit function entry_from_record @48-54 #39df03a6
+::sig entry_from_record(rec: FileRecord, mtime_ns: int) -> dict
+::algo cfg=ret an=_unit_to_dict:1,doc:1,eol:1,imports:1,lang:1,lines:1,sha:1,size:1,text:1,units:1
+::unit function record_from_entry @57-65 #a49394b5
+::sig record_from_entry(path: str, entry: dict, abspath: str) -> FileRecord
+::algo cfg==,=,=,ret an=FileRecord:1,_unit_from_dict:1,lang:1,list:1,split:1,text:1,units:1
+::unit function attach_cached_units @68-73 #07ab751f
+::sig attach_cached_units(rec: FileRecord, entry: dict) -> None
+::doc Reuse analyzed units for a file whose content hash is unchanged.
+::algo cfg==,=,=,= an=_unit_from_dict:1,doc:1,imports:1,lang:1,list:1,path:1,split:1,text:1,units:1
+::unit function load_cache @76-87 #34d14381
+::sig load_cache(root: Path) -> dict
+::doc path -> entry mapping, or {} when absent/stale/incompatible.
+::algo cfg==,if{ret},try{=,if{ret},ret|ret} an=!=:1,/:1,cm_dir:1,decompress:1,get:2,is_file:1,loads:1,not:1,read_bytes:1
+::unit function save_cache @90-102 #d414cc54
+::sig save_cache(root: Path, result: ScanResult) -> None
+::algo cfg==,=,=,call,=,call,call an=+:1,/:2,cm_dir:1,compress:1,dumps:1,encode:1,entry_from_record:1,get:1,mkdir:1,mtimes:1,path:2,records:1,replace:1,write_bytes:1
+::unit function load_accepted @105-114 #0646b626
+::sig load_accepted(root: Path) -> set[str]
+::algo cfg==,if{ret},=,for{=,if{call}},ret an=/:1,add:1,cm_dir:1,is_file:1,not:1,read_text:1,set:2,split:1,splitlines:1,strip:1
+::unit function add_accepted @117-123 #536c0827
+::sig add_accepted(root: Path, fps: list[str], reason: str='') -> None
+::algo cfg==,call,=,with{for{call}} an=+:2,/:1,cm_dir:1,mkdir:1,open:1,write:1
+::content 124
+"""Incremental compile state: the .cm/ directory.
+
+Holds the compile cache (per-file text, hashes, mtimes, and fully-analyzed
+units) and the accept-list of reviewed fingerprints. The cache is what makes
+"recompile on every change" cheap: unchanged files are restored from here
+without re-reading or re-analyzing; the baseline it represents is also what
+`cm gate` diffs new writes against.
+"""
+from __future__ import annotations
+
+import gzip
+import json
+import os
+from pathlib import Path
+
+from . import __version__
+from .model import FileRecord, ScanResult, Unit
+
+CM_DIR = ".cm"
+_CACHE = "cache.json.gz"
+_ACCEPTED = "accepted"
+
+
+def cm_dir(root: Path) -> Path:
+    return root / CM_DIR
+
+
+def _unit_to_dict(u: Unit) -> dict:
+    return {
+        "kind": u.kind, "name": u.name, "qualname": u.qualname,
+        "signature": u.signature, "start": u.start, "end": u.end,
+        "doc": u.doc, "norm": u.norm, "fp": u.fp, "algo": u.algo,
+        "scoreable": u.scoreable, "trivial": u.trivial, "bound": sorted(u.bound),
+    }
+
+
+def _unit_from_dict(d: dict, lines: list[str], path: str, lang: str) -> Unit:
+    return Unit(
+        kind=d["kind"], name=d["name"], qualname=d["qualname"],
+        signature=d["signature"], start=d["start"], end=d["end"],
+        doc=d["doc"], body="\n".join(lines[d["start"] - 1:d["end"]]),
+        norm=d["norm"], fp=d["fp"], algo=d.get("algo", ""),
+        scoreable=d["scoreable"], trivial=d["trivial"],
+        path=path, lang=lang, bound=frozenset(d["bound"]),
+    )
+
+
+def entry_from_record(rec: FileRecord, mtime_ns: int) -> dict:
+    return {
+        "sha": rec.sha, "size": rec.size, "mtime_ns": mtime_ns,
+        "lang": rec.lang, "lines": rec.lines, "eol": rec.eol,
+        "doc": rec.doc, "imports": rec.imports, "text": rec.text,
+        "units": [_unit_to_dict(u) for u in rec.units],
+    }
+
+
+def record_from_entry(path: str, entry: dict, abspath: str) -> FileRecord:
+    rec = FileRecord(
+        path=path, abspath=abspath, lang=entry["lang"], text=entry["text"],
+        sha=entry["sha"], size=entry["size"], lines=entry["lines"],
+        eol=entry["eol"], doc=entry["doc"], imports=list(entry["imports"]),
+    )
+    lines = rec.text.split("\n")
+    rec.units = [_unit_from_dict(d, lines, path, rec.lang) for d in entry["units"]]
+    return rec
+
+
+def attach_cached_units(rec: FileRecord, entry: dict) -> None:
+    """Reuse analyzed units for a file whose content hash is unchanged."""
+    lines = rec.text.split("\n")
+    rec.doc = entry["doc"]
+    rec.imports = list(entry["imports"])
+    rec.units = [_unit_from_dict(d, lines, rec.path, rec.lang) for d in entry["units"]]
+
+
+def load_cache(root: Path) -> dict:
+    """path -> entry mapping, or {} when absent/stale/incompatible."""
+    p = cm_dir(root) / _CACHE
+    if not p.is_file():
+        return {}
+    try:
+        data = json.loads(gzip.decompress(p.read_bytes()))
+        if data.get("cm") != __version__:
+            return {}
+        return data.get("files", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def save_cache(root: Path, result: ScanResult) -> None:
+    files = {
+        rec.path: entry_from_record(rec, result.mtimes.get(rec.path, 0))
+        for rec in result.records
+    }
+    payload = gzip.compress(
+        json.dumps({"cm": __version__, "files": files},
+                   separators=(",", ":")).encode("utf-8"), 6)
+    d = cm_dir(root)
+    d.mkdir(exist_ok=True)
+    tmp = d / (_CACHE + ".tmp")
+    tmp.write_bytes(payload)
+    os.replace(tmp, d / _CACHE)
+
+
+def load_accepted(root: Path) -> set[str]:
+    p = cm_dir(root) / _ACCEPTED
+    if not p.is_file():
+        return set()
+    out = set()
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            out.add(line)
+    return out
+
+
+def add_accepted(root: Path, fps: list[str], reason: str = "") -> None:
+    d = cm_dir(root)
+    d.mkdir(exist_ok=True)
+    suffix = f"  # {reason}" if reason else ""
+    with open(d / _ACCEPTED, "a", encoding="utf-8") as f:
+        for fp in fps:
+            f.write(fp + suffix + "\n")
+
+::endfile
+
+::file cm/cli.py
+::lang python
+::sha ddc6c068a035
+::lines 500
+::doc cm command line: build / check / audit / drift.
+::imports __future__, argparse, cache, cmfile, datetime, ignore, json, lzma, model, normalize, pathlib, redundancy, scan, shutil, sys
+::unit function _corpus_stats @24-40 #5f0e282e
+::sig _corpus_stats(records, light: bool=False) -> dict
+::algo cfg==,=,if{ret},=,=,=,=,=,call,ret an=*:2,-:3,/:1,compress:2,encode:2,in:1,join:1,kind:1,lang:1,len:4,max:3,norm_source:1,round:1,size:1,sum:3,text:1,units:1,update:1
+::unit function _utc_now @43-45 #ebdd6a69
+::sig _utc_now() -> str
+::algo cfg=imp,ret an=isoformat:1,now:1,utc:1
+::unit function _commit @48-56 #e5226df9
+::sig _commit(root: Path, result, stats: dict, no_content: bool=False, output: str | None=None) -> Path
+::doc Write PROJECT.cm and the cache: the new accepted baseline.
+::algo cfg==,=,=,call,call,ret an=/:1,Path:1,_utc_now:1,emit:1,name:1,not:1,records:1,save_cache:1,write_text:1,|b:1
+::unit function cmd_build @59-73 #bcd9976a
+::sig cmd_build(args) -> int
+::algo cfg==,=,=,=,=,call,call,call,call,for{if{call}},ret an=+:1,>:1,Path:1,_commit:1,_corpus_stats:1,cache_hits:1,changed:1,full:1,join:1,len:2,load_cache:1,no_content:1,output:1,path:1,print:5,records:1,resolve:1,scan_tree:1,skipped_binary:1,skipped_large:1
+::unit function cmd_status @76-94 #e7268336
+::sig cmd_status(args) -> int
+::algo cfg==,=,if{call,ret},=,=,=,=,=,=,call,for{for{call}},call,ret an=+:1,-:1,/:1,Path:1,bool:1,changed:2,in:1,is_file:1,len:4,load_cache:1,not:2,not-in:1,or:3,path:2,print:4,records:1,resolve:1,scan_tree:1,set:1,sorted:1
+::unit function _print_unit_report @97-120 #6c099e75
+::sig _print_unit_report(rep: dict, warn: float, fail: float, out=None) -> None
+::algo cfg==,=,call,if{ret},call,for{=,=,=,call,=,if{=,=,call},for{call}} an=get:3,is-not:1,join:2,or:4,print:5,stdout:1,upper:1,verdict:1
+::unit function _summarize @123-127 #08cf7fda
+::sig _summarize(reports: list[dict], warn: float, fail: float) -> dict
+::algo cfg==,for{+=},ret an=verdict:1
+::unit function cmd_check @130-170 #775ab3e3
+::sig cmd_check(args) -> int
+::algo cfg==,=,for{if{call,ret}},=,=,=,for{=,try{=|=},=,if{call,ret},call},=,=,=,if{call|call,for{call},call},ret an=!=:1,-:1,Path:4,_print_unit_report:1,_summarize:1,all_units:1,as_posix:2,dumps:1,extend:1,fail:3,is:1,is_file:1,join:1,json:1,kind:1,len:3,load_cache:1,print:5,resolve:3,sorted:2,stderr:2,str:2,targets:4,warn:3
+::unit function cmd_audit @173-196 #a2b15ef6
+::sig cmd_audit(args) -> int
+::algo cfg==,=,=,=,=,call,=,if{call,ret},call,if{call},for{call},call,ret an=!=:1,-:1,Path:1,_print_unit_report:1,_summarize:1,all_units:1,and:1,dumps:1,fail:3,json:1,len:2,limit:1,load_cache:1,not:2,path:1,print:4,records:1,resolve:1,scan_tree:1,score_targets:1,sort:1,str:1,top:1,warn:4
+::unit function _changed_units @199-212 #fb750821
+::sig _changed_units(result, cache: dict) -> list[Unit]
+::doc Scoreable units that are new or modified relative to the cached baseline.
+::algo cfg==,for{=,if{cnt},=,call},ret an===:1,and:2,extend:1,fp:1,get:1,is-not:1,not-in:1,path:1,records:1,scoreable:1,set:1,sha:1,units:1
+::unit function cmd_gate @215-268 #e0690191
+::sig cmd_gate(args) -> int
+::doc The write interlock: recompile incrementally, score what changed,
+::algo cfg==,=,=,=,=,if{call,if{call},ret},=,if{call,if{call},ret},=,=,=,for{if{cnt},=,if{call|if{call}}},if{call,for{call},call,for{call},call,ret},call,if{call,for{call}},ret an=-:1,==:2,>:1,Path:1,_changed_units:1,_commit:3,_corpus_stats:3,_print_unit_report:2,all_units:2,append:2,fail:3,hook:5,in:1,len:5,load_accepted:1,load_cache:1,not:5,or:1,path:1,print:7,records:5,resolve:1,scan_tree:1,warn:3
+::unit function cmd_accept @271-281 #b89ba7ab
+::sig cmd_accept(args) -> int
+::algo cfg==,=,for{if{call,ret},call},call,call,ret an=!=:1,Path:1,add_accepted:1,any:1,append:1,fps:1,len:2,not-in:1,or:1,print:2,reason:1,resolve:1,root:1,stderr:1
+::unit function _write_protocol @302-316 #5582a96c
+::sig _write_protocol(root: Path) -> str
+::algo cfg=for{=,if{=,if{=,=,=|=},call,ret}},call,ret an=+:6,/:2,and:1,in:2,is_file:1,partition:2,read_text:1,rstrip:1,write_text:2
+::unit function _install_hook @319-336 #9e2ba13a
+::sig _install_hook(root: Path) -> str
+::algo cfg==,=,if{try{=|ret}},=,for{if{ret}},=,call,call,call,ret an=+:1,/:2,any:1,append:1,dumps:1,executable:1,get:2,in:1,is_file:1,loads:1,mkdir:1,parent:1,read_text:1,setdefault:2,which:1,write_text:1
+::unit function cmd_init @339-364 #0d116ae2
+::sig cmd_init(args) -> int
+::algo cfg==,=,=,if{call,call},=,=,call,call,call,if{call|call},if{call},call,for{call},ret an=/:1,Path:1,_commit:1,_corpus_stats:1,_install_hook:1,_write_protocol:1,append:6,hooks:1,is_file:1,not:2,path:1,print:2,records:1,resolve:1,scan_tree:1,which:1,write_text:1
+::unit function cmd_drift @367-429 #5df32d09
+::sig cmd_drift(args) -> int
+::algo cfg==,if{call,ret},=,if{=|=},=,=,for{if{=,=,=|if{call|call}}},=,=,for{=,for{=,=,if{=|if{=}},if{call,cnt},if{=,=|=},+=,call}},=,if{call,ret},call,call,=,for{call},ret an=+:4,-:3,/:2,==:4,Path:2,add:2,and:2,append:2,cm:2,content:2,end:2,fp:2,in:6,is-not:2,len:10,manifest:2,not:2,or:2,partition:2,path:2,print:5,read_text:2,round:2,set:2
+::unit function main @432-499 #c0bf363a
+::sig main(argv=None) -> int
+::algo cfg==,call,=,=,call,call,call,call,call,=,call,call,=,call,call,call,call,call,call,=,call,call,call,call,=,call,call,call,=,call,call,call,call,call,call,call,=,call,call,call,call,call,call,call,=,call,call,call,call,=,ret an=ArgumentParser:1,add_argument:31,add_parser:8,add_subparsers:1,fn:1,parse_args:1,set_defaults:8
+::content 500
+"""cm command line: build / check / audit / drift."""
+from __future__ import annotations
+
+import argparse
+import json
+import lzma
+import shutil
+import sys
+from pathlib import Path
+
+from . import __version__
+from .cache import add_accepted, load_accepted, load_cache, save_cache
+from .cmfile import emit, parse
+from .ignore import IgnoreRules
+from .model import Unit
+from .normalize import norm_source
+from .redundancy import score_targets, standalone_bits, verdict
+from .scan import load_file, scan_tree
+
+_LZMA_EMPTY = len(lzma.compress(b""))
+_STATS_FULL_MAX = 4_000_000  # above this many raw bytes, gate skips corpus compression
+
+
+def _corpus_stats(records, light: bool = False) -> dict:
+    units = [u for r in records for u in r.units]
+    stats = {
+        "files": len(records),
+        "units": len(units),
+        "functions": sum(1 for u in units if u.kind in ("function", "method")),
+        "raw_bytes": sum(r.size for r in records),
+    }
+    if light:
+        return stats
+    norms = [norm_source(r.text, r.lang) for r in records]
+    joined = "\n".join(norms).encode("utf-8")
+    info_bits = max(0, (len(lzma.compress(joined)) - _LZMA_EMPTY) * 8)
+    per_file = sum(max(8, (len(lzma.compress(n.encode("utf-8"))) - _LZMA_EMPTY) * 8) for n in norms)
+    redundancy = max(0.0, 1.0 - info_bits / per_file) if per_file else 0.0
+    stats.update(info_bits=info_bits, structural_redundancy=round(redundancy, 3))
+    return stats
+
+
+def _utc_now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _commit(root: Path, result, stats: dict, no_content: bool = False,
+            output: str | None = None) -> Path:
+    """Write PROJECT.cm and the cache: the new accepted baseline."""
+    meta = {"project": root.name, "root": ".", "generated": _utc_now(), "stats": stats}
+    out_path = Path(output) if output else root / "PROJECT.cm"
+    text = emit(meta, result.records, include_content=not no_content)
+    out_path.write_text(text, encoding="utf-8", newline="\n")
+    save_cache(root, result)
+    return out_path
+
+
+def cmd_build(args) -> int:
+    root = Path(args.path).resolve()
+    cache = {} if args.full else load_cache(root)
+    result = scan_tree(root, cache=cache)
+    stats = _corpus_stats(result.records)
+    out_path = _commit(root, result, stats, args.no_content, args.output)
+    print(f"PROJECT.cm written -> {out_path}")
+    print(f"  files {stats['files']}  units {stats['units']} "
+          f"({stats['functions']} functions)  raw {stats['raw_bytes']:,} B")
+    print(f"  info {stats['info_bits']:,} bits  structural redundancy {stats['structural_redundancy']:.0%}")
+    print(f"  incremental: {result.cache_hits} cached, {len(result.changed)} analyzed")
+    for label, items in (("binary", result.skipped_binary), ("too large", result.skipped_large)):
+        if items:
+            print(f"  skipped ({label}): {', '.join(items[:8])}" + (" ..." if len(items) > 8 else ""))
+    return 0
+
+
+def cmd_status(args) -> int:
+    root = Path(args.path).resolve()
+    cache = load_cache(root)
+    if not cache:
+        print("no baseline (.cm/ cache missing or stale) — run 'cm build' or 'cm init'")
+        return 1
+    result = scan_tree(root, cache=cache)
+    current = {r.path for r in result.records}
+    added = [p for p in result.changed if p not in cache]
+    modified = [p for p in result.changed if p in cache]
+    removed = sorted(set(cache) - current)
+    stale = bool(added or modified or removed) or not (root / "PROJECT.cm").is_file()
+    print(f"baseline: {len(cache)} files | added {len(added)}  "
+          f"modified {len(modified)}  removed {len(removed)}")
+    for label, items in (("added", added), ("modified", modified), ("removed", removed)):
+        for p in items[:10]:
+            print(f"  {label:>8}  {p}")
+    print("PROJECT.cm is " + ("STALE — run 'cm build' or 'cm gate'" if stale else "up to date"))
+    return 1 if stale else 0
+
+
+def _print_unit_report(rep: dict, warn: float, fail: float, out=None) -> None:
+    out = out or sys.stdout
+    v = "trivial" if rep["trivial"] else verdict(rep, warn, fail)
+    print(f"[{v.upper():>9} {rep['redundancy']:.2f}] {rep['signature'] or rep['unit']}"
+          f"  {rep['file']}@{rep['span'][0]}-{rep['span'][1]}", file=out)
+    if rep["trivial"]:
+        return
+    print(f"            standalone {rep['standalone_bits']:,} bits, "
+          f"marginal {rep['marginal_bits']:,} bits, wasted {rep['wasted_bits']:,} bits", file=out)
+    for m in rep.get("matches", []):
+        tag = " EXACT-STRUCTURAL-DUP" if m["exact_structural_dup"] else ""
+        sim = m.get("algo_similarity")
+        algotxt = f"  algo-sim {sim:.2f}" if sim is not None else ""
+        print(f"    -> {m['score']:.2f} vs {m['unit']}  {m['file']}@{m['span'][0]}-{m['span'][1]}"
+              f"  token-sim {m['token_similarity']:.2f}{algotxt}{tag}", file=out)
+        ad = m.get("anchor_diff")
+        if ad:
+            here = ", ".join(ad["only_target"]) or "-"
+            there = ", ".join(ad["only_match"]) or "-"
+            print(f"       anchors only here: {here} | only there: {there}", file=out)
+        for o in m["overlap"][:2]:
+            print(f"       overlap {rep['file']}:{o['target_lines'][0]}-{o['target_lines'][1]}"
+                  f" ~ {m['file']}:{o['match_lines'][0]}-{o['match_lines'][1]}"
+                  f"  ({o['lines']} lines)  {o['snippet']}", file=out)
+
+
+def _summarize(reports: list[dict], warn: float, fail: float) -> dict:
+    counts = {"duplicate": 0, "overlap": 0, "novel": 0, "trivial": 0}
+    for rep in reports:
+        counts["trivial" if rep["trivial"] else verdict(rep, warn, fail)] += 1
+    return counts
+
+
+def cmd_check(args) -> int:
+    root = Path(args.root).resolve()
+    targets_abs = {str(Path(t).resolve()) for t in args.targets}
+    for t in args.targets:
+        if not Path(t).is_file():
+            print(f"error: target not found: {t}", file=sys.stderr)
+            return 2
+    corpus_scan = scan_tree(root, exclude_abs=targets_abs, cache=load_cache(root))
+    corpus = corpus_scan.all_units(scoreable_only=True)
+
+    target_units: list[Unit] = []
+    for t in args.targets:
+        p = Path(t).resolve()
+        try:
+            rel = p.relative_to(root).as_posix()
+        except ValueError:
+            rel = p.as_posix()
+        rec = load_file(p, rel)
+        if rec is None:
+            print(f"error: target is binary: {t}", file=sys.stderr)
+            return 2
+        target_units.extend(rec.units)
+
+    scoreables = [u for u in target_units if u.kind != "class"]
+    reports = score_targets(scoreables, corpus, top=args.top)
+    counts = _summarize(reports, args.warn, args.fail)
+
+    if args.json:
+        print(json.dumps({
+            "root": str(root), "targets": sorted(targets_abs),
+            "thresholds": {"warn": args.warn, "fail": args.fail},
+            "corpus_units": len(corpus), "units": reports, "summary": counts,
+        }, indent=2))
+    else:
+        print(f"CHECK {', '.join(args.targets)}  "
+              f"(corpus: {len(corpus)} units / {len(corpus_scan.records)} files)\n")
+        for rep in sorted(reports, key=lambda r: -r["redundancy"]):
+            _print_unit_report(rep, args.warn, args.fail)
+        print(f"\nSummary: {counts['duplicate']} duplicate, {counts['overlap']} overlap, "
+              f"{counts['novel']} novel, {counts['trivial']} trivial")
+    return 1 if counts["duplicate"] else 0
+
+
+def cmd_audit(args) -> int:
+    root = Path(args.path).resolve()
+    result = scan_tree(root, cache=load_cache(root))
+    units = result.all_units(scoreable_only=True)
+    reports = score_targets(units, units, top=args.top)
+    # rank by wasted information, not ratio: a large half-duplicated function
+    # costs the project more than two tiny structurally-identical helpers
+    flagged = [r for r in reports
+               if not r["trivial"] and verdict(r, args.warn, args.fail) != "novel"]
+    flagged.sort(key=lambda r: -r["wasted_bits"])
+    counts = _summarize(reports, args.warn, args.fail)
+
+    if args.json:
+        print(json.dumps({"root": str(root), "units": reports, "summary": counts}, indent=2))
+        return 0
+    print(f"AUDIT {root}  ({len(units)} scoreable units / {len(result.records)} files)\n")
+    if not flagged:
+        print(f"No unit pair exceeds warn threshold {args.warn:.2f}. "
+              f"Corpus is structurally lean.")
+    for rep in flagged[:args.limit]:
+        _print_unit_report(rep, args.warn, args.fail)
+    print(f"\nSummary: {counts['duplicate']} duplicate, {counts['overlap']} overlap, "
+          f"{counts['novel']} novel, {counts['trivial']} trivial")
+    return 0
+
+
+def _changed_units(result, cache: dict) -> list[Unit]:
+    """Scoreable units that are new or modified relative to the cached baseline.
+
+    A unit whose fingerprint already existed in its file's previous version is
+    unchanged (moved code and renamed locals keep their fingerprint).
+    """
+    targets = []
+    for rec in result.records:
+        entry = cache.get(rec.path)
+        if entry is not None and entry["sha"] == rec.sha:
+            continue
+        prev_fps = {u["fp"] for u in entry["units"]} if entry else set()
+        targets.extend(u for u in rec.units if u.scoreable and u.fp not in prev_fps)
+    return targets
+
+
+def cmd_gate(args) -> int:
+    """The write interlock: recompile incrementally, score what changed,
+    block (exit nonzero) on unreviewed duplicates, else commit the new baseline."""
+    root = Path(args.path).resolve()
+    out = sys.stderr if args.hook else sys.stdout
+    cache = load_cache(root)
+    result = scan_tree(root, cache=cache)
+    light = sum(r.size for r in result.records) > _STATS_FULL_MAX
+
+    if not cache:
+        _commit(root, result, _corpus_stats(result.records, light))
+        if not args.hook:
+            print(f"cm gate: baseline created ({len(result.records)} files, "
+                  f"{len(result.all_units())} units)")
+        return 0
+
+    targets = _changed_units(result, cache)
+    if not targets:
+        _commit(root, result, _corpus_stats(result.records, light))
+        if not args.hook:
+            print("gate clean: no changed units; baseline refreshed")
+        return 0
+
+    accepted = load_accepted(root)
+    reports = score_targets(targets, result.all_units(scoreable_only=True), top=args.top)
+    blocking, overlaps = [], []
+    for rep in reports:
+        if rep["trivial"] or rep["fp"] in accepted:
+            continue
+        v = verdict(rep, args.warn, args.fail)
+        if v == "duplicate":
+            blocking.append(rep)
+        elif v == "overlap":
+            overlaps.append(rep)
+
+    if blocking:
+        print(f"cm gate BLOCKED: {len(blocking)} duplicate unit(s) — this appears "
+              f"to already exist in the codebase.", file=out)
+        for rep in sorted(blocking, key=lambda r: -r["wasted_bits"]):
+            _print_unit_report(rep, args.warn, args.fail, out=out)
+        print("Investigate each match above (read the cited unit). Then either "
+              "reuse/extend it, or — if the similarity is intentional — run:", file=out)
+        for rep in blocking:
+            print(f"  cm accept {rep['fp']}    # {rep['unit']}", file=out)
+        print("Baseline NOT updated; the gate will re-flag until resolved.", file=out)
+        return 2 if args.hook else 1
+
+    _commit(root, result, _corpus_stats(result.records, light))
+    if not args.hook:
+        print(f"gate clean: {len(targets)} changed unit(s) scored, "
+              f"{len(overlaps)} overlap(s) noted (non-blocking); baseline updated")
+        for rep in overlaps[:5]:
+            _print_unit_report(rep, args.warn, args.fail)
+    return 0
+
+
+def cmd_accept(args) -> int:
+    root = Path(args.root).resolve()
+    fps = []
+    for fp in args.fps:
+        if len(fp) != 8 or any(c not in "0123456789abcdef" for c in fp):
+            print(f"error: {fp!r} is not a unit fingerprint (8 hex chars)", file=sys.stderr)
+            return 2
+        fps.append(fp)
+    add_accepted(root, fps, args.reason)
+    print(f"accepted {len(fps)} fingerprint(s); 'cm gate' will no longer block on them")
+    return 0
+
+
+_PROTO_BEGIN = "<!-- cm:protocol:begin -->"
+_PROTO_END = "<!-- cm:protocol:end -->"
+_PROTOCOL = f"""{_PROTO_BEGIN}
+## cm — redundancy gate
+
+This repo is compiled into PROJECT.cm (every file's functions, fingerprints,
+and algorithm skeletons). The goal is token efficiency: never rewrite what
+the codebase already contains.
+
+- After creating or modifying code, `cm gate` runs (via hook, or run it
+  yourself). It recompiles incrementally and scores only what changed.
+- If it reports DUPLICATE, stop: read the cited unit (file@lines, anchor
+  diff explains any difference) and reuse or extend it instead.
+- If the similarity is intentional, run `cm accept <fp>` and continue.
+- PROJECT.cm and the baseline update automatically when the gate passes.
+{_PROTO_END}"""
+
+
+def _write_protocol(root: Path) -> str:
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        p = root / name
+        if p.is_file():
+            text = p.read_text(encoding="utf-8")
+            if _PROTO_BEGIN in text and _PROTO_END in text:
+                head, _, rest = text.partition(_PROTO_BEGIN)
+                _, _, tail = rest.partition(_PROTO_END)
+                text = head + _PROTOCOL + tail
+            else:
+                text = text.rstrip("\n") + "\n\n" + _PROTOCOL + "\n"
+            p.write_text(text, encoding="utf-8", newline="\n")
+            return f"protocol section written to existing {name}"
+    (root / "CLAUDE.md").write_text(_PROTOCOL + "\n", encoding="utf-8", newline="\n")
+    return "protocol written to new CLAUDE.md"
+
+
+def _install_hook(root: Path) -> str:
+    p = root / ".claude" / "settings.json"
+    data = {}
+    if p.is_file():
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            return "SKIPPED hook install: .claude/settings.json is not valid JSON"
+    matchers = data.setdefault("hooks", {}).setdefault("PostToolUse", [])
+    for m in matchers:
+        if any("cm gate" in h.get("command", "") for h in m.get("hooks", [])):
+            return "hook already installed in .claude/settings.json"
+    command = "cm gate --hook" if shutil.which("cm") else f'"{sys.executable}" -m cm gate --hook'
+    matchers.append({"matcher": "Write|Edit|MultiEdit",
+                     "hooks": [{"type": "command", "command": command}]})
+    p.parent.mkdir(exist_ok=True)
+    p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+    return f"PostToolUse hook installed in .claude/settings.json ({command})"
+
+
+def cmd_init(args) -> int:
+    root = Path(args.path).resolve()
+    notes = []
+    cmignore = root / ".cmignore"
+    if not cmignore.is_file():
+        cmignore.write_text(
+            "# cm ignore rules (gitignore syntax). Defaults already exclude VCS\n"
+            "# dirs, caches, binaries, .cm/ state, and *.cm outputs.\n",
+            encoding="utf-8", newline="\n")
+        notes.append(".cmignore created")
+    result = scan_tree(root)  # full compile for a trustworthy baseline
+    stats = _corpus_stats(result.records)
+    _commit(root, result, stats)
+    notes.append(f"PROJECT.cm + .cm/ baseline built "
+                 f"({stats['files']} files, {stats['units']} units)")
+    notes.append(_write_protocol(root))
+    if args.hooks:
+        notes.append(_install_hook(root))
+    else:
+        notes.append("agent hook not installed (rerun with --hooks to gate writes automatically)")
+    if not shutil.which("cm"):
+        notes.append("note: 'cm' not on PATH — install with: pip install -e <cm repo>  (or pipx)")
+    print("cm init:")
+    for n in notes:
+        print(f"  - {n}")
+    return 0
+
+
+def cmd_drift(args) -> int:
+    cm_path = Path(args.cm)
+    if not cm_path.is_file():
+        print(f"error: {args.cm} not found (run 'cm build' first)", file=sys.stderr)
+        return 2
+    _, files = parse(cm_path.read_text(encoding="utf-8"))
+
+    if args.manifest == "-":
+        tokens = [ln.strip() for ln in sys.stdin.read().splitlines()]
+    else:
+        tokens = [ln.strip() for ln in
+                  Path(args.manifest).read_text(encoding="utf-8").splitlines()]
+    tokens = [t for t in tokens if t and not t.startswith("#")]
+    have_fps, have_paths, have_qual = set(), set(), {}
+    for tok in tokens:
+        if "#" in tok:
+            pathpart, _, unitpart = tok.partition("#")
+            qual, _, fp = unitpart.partition("@")
+            have_qual[f"{pathpart}#{qual}"] = fp
+        elif "/" in tok or "." in tok and len(tok) != 8:
+            have_paths.add(tok)
+        else:
+            have_fps.add(tok)
+
+    covered, stale, missing = [], [], []
+    bits_to_sync = 0.0
+    for f in files:
+        content_lines = f.content.split("\n") if f.content is not None else None
+        for u in f.units:
+            key = f"{f.path}#{u.qualname}"
+            status = "missing"
+            if u.fp in have_fps or f.path in have_paths:
+                status = "covered"
+            elif key in have_qual:
+                status = "covered" if have_qual[key] == u.fp else "stale"
+            if status == "covered":
+                covered.append(key)
+                continue
+            if content_lines is not None:
+                body = "\n".join(content_lines[u.start - 1:u.end])
+                bits = standalone_bits(norm_source(body, f.lang).encode("utf-8"))
+            else:
+                bits = (u.end - u.start + 1) * 40.0  # rough estimate without content
+            bits_to_sync += bits
+            (stale if status == "stale" else missing).append((key, u.kind, round(bits)))
+
+    total = len(covered) + len(stale) + len(missing)
+    if args.json:
+        print(json.dumps({
+            "units": total, "covered": len(covered), "stale": len(stale),
+            "missing": len(missing), "bits_to_sync": round(bits_to_sync),
+            "stale_units": [{"unit": k, "bits": b} for k, _, b in stale],
+            "missing_units": [{"unit": k, "bits": b} for k, _, b in missing],
+        }, indent=2))
+        return 0
+    print(f"DRIFT vs {cm_path.name}: {len(covered)}/{total} units in context, "
+          f"{len(stale)} stale, {len(missing)} missing")
+    print(f"  bits to sync: {bits_to_sync:,.0f} "
+          f"(~{bits_to_sync / 8 / 1024:.1f} KiB of novel information)")
+    worst = sorted(stale + missing, key=lambda x: -x[2])[:10]
+    for key, kind, bits in worst:
+        print(f"    {kind:<8} {key}  {bits:,} bits")
+    return 0
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(
+        prog="cm",
+        description="Compile a codebase into a context management artifact (PROJECT.cm) "
+                    "and police redundancy with information-theoretic checks.")
+    p.add_argument("--version", action="version", version=f"cm {__version__}")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    b = sub.add_parser("build", help="compile the tree into PROJECT.cm (incremental)")
+    b.add_argument("path", nargs="?", default=".")
+    b.add_argument("-o", "--output", default=None)
+    b.add_argument("--full", action="store_true", help="ignore the cache, recompile everything")
+    b.add_argument("--no-content", action="store_true",
+                   help="index only: omit file contents from the .cm")
+    b.set_defaults(fn=cmd_build)
+
+    st = sub.add_parser("status", help="is the baseline current? what changed?")
+    st.add_argument("path", nargs="?", default=".")
+    st.set_defaults(fn=cmd_status)
+
+    g = sub.add_parser("gate", help="recompile + score changed units; block on duplicates")
+    g.add_argument("path", nargs="?", default=".")
+    g.add_argument("--hook", action="store_true",
+                   help="agent-hook mode: silent on success, findings to stderr, exit 2 on block")
+    g.add_argument("--warn", type=float, default=0.55)
+    g.add_argument("--fail", type=float, default=0.80)
+    g.add_argument("--top", type=int, default=3)
+    g.set_defaults(fn=cmd_gate)
+
+    ac = sub.add_parser("accept", help="mark flagged fingerprints as reviewed-and-intentional")
+    ac.add_argument("fps", nargs="+", metavar="fp")
+    ac.add_argument("--root", default=".")
+    ac.add_argument("--reason", default="", help="why the similarity is intentional (recorded)")
+    ac.set_defaults(fn=cmd_accept)
+
+    ini = sub.add_parser("init", help="install cm into a repo: baseline + agent protocol")
+    ini.add_argument("path", nargs="?", default=".")
+    ini.add_argument("--hooks", action="store_true",
+                     help="also install the Claude Code PostToolUse write gate")
+    ini.set_defaults(fn=cmd_init)
+
+    c = sub.add_parser("check", help="score new/changed files for redundancy vs the tree")
+    c.add_argument("targets", nargs="+", help="files treated as 'new code'")
+    c.add_argument("--root", default=".", help="corpus root (default: cwd)")
+    c.add_argument("--warn", type=float, default=0.55)
+    c.add_argument("--fail", type=float, default=0.80)
+    c.add_argument("--top", type=int, default=3)
+    c.add_argument("--json", action="store_true")
+    c.set_defaults(fn=cmd_check)
+
+    a = sub.add_parser("audit", help="pairwise redundancy self-audit of the whole tree")
+    a.add_argument("path", nargs="?", default=".")
+    a.add_argument("--warn", type=float, default=0.55)
+    a.add_argument("--fail", type=float, default=0.80)
+    a.add_argument("--top", type=int, default=3)
+    a.add_argument("--limit", type=int, default=20)
+    a.add_argument("--json", action="store_true")
+    a.set_defaults(fn=cmd_audit)
+
+    d = sub.add_parser("drift", help="[experimental] context-vs-PROJECT.cm divergence")
+    d.add_argument("manifest", help="file of section refs the context holds "
+                                    "(fp8 | path | path#qualname@fp8), '-' for stdin")
+    d.add_argument("--cm", default="PROJECT.cm")
+    d.add_argument("--json", action="store_true")
+    d.set_defaults(fn=cmd_drift)
+
+    args = p.parse_args(argv)
+    return args.fn(args)
+
+::endfile
+
+::file cm/cmfile.py
+::lang python
+::sha 1320c3748417
+::lines 161
+::doc The .cm format: emit and parse PROJECT.cm.
+::imports __future__, dataclasses, model
+::unit function emit @32-65 #0e08e756
+::sig emit(meta: dict, records: list[FileRecord], include_content: bool=True) -> str
+::algo cfg==,for{if{call|call}},call,for{call,call,call,call,if{call},if{call},if{call},for{call,if{call},if{call},if{call}},if{=,call,call},call,call},ret an=!=:1,+:2,==:1,algo:2,append:17,doc:4,end:1,eol:2,extend:1,fp:1,imports:2,items:2,join:3,kind:1,lang:1,len:1,lines:1,path:1,qualname:1,sha:1,signature:2,split:1,start:1,text:1
+::unit class CmUnit @68-77 #2a8fc207
+::sig class CmUnit
+::unit class CmFile @80-90 #ded3a82d
+::sig class CmFile
+::unit class CmParseError @93-94 #f9f535d2
+::sig class CmParseError
+::unit function parse @97-160 #4627863a
+::sig parse(text: str) -> tuple[dict, list[CmFile]]
+::algo cfg==,if{raise},=,=,=,=,while{=,+=,if{cnt},=,=,if{=,call|if{=|if{=,for{=,=},=|if{=|if{try{=|raise},if{raise},=,+=|if{try{=,=,call|raise}|if{=|if{=|if{if{=|=}|if{=|if{=|if{=|if{=|if{=}}}}}}}}}}}}}}},ret an=+:2,-:3,<:1,==:13,>:1,CmFile:1,CmParseError:4,CmUnit:1,algo:1,and:2,append:2,content:1,doc:2,eol:1,imports:1,int:4,len:2,lstrip:2,not:3,partition:3,split:4,startswith:2,strip:4,units:7
+::content 161
+"""The .cm format: emit and parse PROJECT.cm.
+
+Line-oriented and human/LLM-readable. Lines starting with `::` are directives;
+file contents are embedded verbatim in a block whose exact line count is
+declared, so content can safely contain `::`.
+
+    ::cm 0.1
+    ::project NAME
+    ::stats files=N units=M ...
+    ::file path/to/file.py
+    ::lang python
+    ::sha 4b0c...        (sha256 of normalized text, 12 hex)
+    ::doc First line of the module docstring.
+    ::imports os, re
+    ::unit function scan_tree @14-52 #a1b2c3d4   (#fp = structural fingerprint)
+    ::sig scan_tree(root, rules) -> ScanResult
+    ::doc Walk the codebase honoring .cmignore.
+    ::algo cfg==,for{if{cnt}},ret an=append:2,ignored:2,... (algorithm skeleton)
+    ::content 140
+    ...140 lines verbatim...
+    ::endfile
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from .model import FileRecord
+
+FORMAT_VERSION = "0.2"
+
+
+def emit(meta: dict, records: list[FileRecord], include_content: bool = True) -> str:
+    out = [f"::cm {FORMAT_VERSION}"]
+    for k, v in meta.items():
+        if k == "stats":
+            out.append("::stats " + " ".join(f"{sk}={sv}" for sk, sv in v.items()))
+        else:
+            out.append(f"::{k} {v}")
+    out.append("")
+    for rec in records:
+        out.append(f"::file {rec.path}")
+        out.append(f"::lang {rec.lang}")
+        out.append(f"::sha {rec.sha}")
+        out.append(f"::lines {rec.lines}")
+        if rec.eol != "lf":
+            out.append(f"::eol {rec.eol}")
+        if rec.doc:
+            out.append(f"::doc {rec.doc}")
+        if rec.imports:
+            out.append("::imports " + ", ".join(rec.imports))
+        for u in rec.units:
+            out.append(f"::unit {u.kind} {u.qualname} @{u.start}-{u.end} #{u.fp}")
+            if u.signature:
+                out.append(f"::sig {u.signature}")
+            if u.doc:
+                out.append(f"::doc {u.doc}")
+            if u.algo:
+                out.append(f"::algo {u.algo}")
+        if include_content:
+            lines = rec.text.split("\n")
+            out.append(f"::content {len(lines)}")
+            out.extend(lines)
+        out.append("::endfile")
+        out.append("")
+    return "\n".join(out)
+
+
+@dataclass
+class CmUnit:
+    kind: str
+    qualname: str
+    start: int
+    end: int
+    fp: str
+    signature: str = ""
+    doc: str = ""
+    algo: str = ""
+
+
+@dataclass
+class CmFile:
+    path: str
+    lang: str = ""
+    sha: str = ""
+    lines: int = 0
+    eol: str = "lf"
+    doc: str = ""
+    imports: list[str] = field(default_factory=list)
+    units: list[CmUnit] = field(default_factory=list)
+    content: str | None = None
+
+
+class CmParseError(ValueError):
+    pass
+
+
+def parse(text: str) -> tuple[dict, list[CmFile]]:
+    lines = text.split("\n")
+    if not lines or not lines[0].startswith("::cm "):
+        raise CmParseError("not a .cm file: missing '::cm' header")
+    meta: dict = {"cm": lines[0][5:].strip()}
+    files: list[CmFile] = []
+    cur: CmFile | None = None
+    i = 1
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if not line.startswith("::"):
+            continue
+        directive, _, rest = line[2:].partition(" ")
+        rest = rest.strip()
+        if directive == "file":
+            cur = CmFile(path=rest)
+            files.append(cur)
+        elif directive == "endfile":
+            cur = None
+        elif directive == "stats":
+            stats = {}
+            for pair in rest.split():
+                k, _, v = pair.partition("=")
+                stats[k] = v
+            meta["stats"] = stats
+        elif cur is None:
+            meta[directive] = rest
+        elif directive == "content":
+            try:
+                n = int(rest)
+            except ValueError:
+                raise CmParseError(f"line {i}: bad ::content count {rest!r}")
+            if i + n > len(lines):
+                raise CmParseError(f"line {i}: ::content declares {n} lines but file ends early")
+            cur.content = "\n".join(lines[i:i + n])
+            i += n
+        elif directive == "unit":
+            try:
+                kind, qualname, span, fp = rest.split(" ")
+                a, _, b = span.lstrip("@").partition("-")
+                cur.units.append(CmUnit(kind, qualname, int(a), int(b), fp.lstrip("#")))
+            except ValueError:
+                raise CmParseError(f"line {i}: bad ::unit line {rest!r}")
+        elif directive == "sig" and cur.units:
+            cur.units[-1].signature = rest
+        elif directive == "algo" and cur.units:
+            cur.units[-1].algo = rest
+        elif directive == "doc":
+            if cur.units:
+                cur.units[-1].doc = rest
+            else:
+                cur.doc = rest
+        elif directive == "lang":
+            cur.lang = rest
+        elif directive == "sha":
+            cur.sha = rest
+        elif directive == "lines":
+            cur.lines = int(rest)
+        elif directive == "eol":
+            cur.eol = rest
+        elif directive == "imports":
+            cur.imports = [s.strip() for s in rest.split(",") if s.strip()]
+    return meta, files
+
+::endfile
+
+::file cm/extract.py
+::lang python
+::sha 111ac3aea512
+::lines 261
+::doc Per-language unit extraction: files -> functions/methods/classes with spans and docs.
+::imports __future__, ast, bisect, hashlib, model, normalize, re, skeleton
+::unit function lang_for @38-40 #890bad12
+::sig lang_for(path: str) -> str
+::algo cfg==,ret an=!=:1,-:1,get:1,lower:1,rfind:1
+::unit function _finish @43-53 #cb92d884
+::sig _finish(unit: Unit, lang: str, path: str) -> Unit
+::algo cfg==,=,=,=,if{=,=},if{=},ret an=<:1,==:1,body:1,bound:2,encode:1,fp:1,hexdigest:1,kind:1,lang:1,len:1,norm:3,norm_source:1,path:1,scoreable:2,sha256:1,trivial:1
+::unit function _py_signature @58-65 #a49a8c0c
+::sig _py_signature(node) -> str
+::algo cfg=try{=,if{+=},ret|ret} an=args:1,getattr:1,is-not:1,name:2,returns:1,unparse:2
+::unit function _first_doc_line @68-70 #00ac040c
+::sig _first_doc_line(node) -> str
+::algo cfg==,ret an=get_docstring:1,splitlines:1,strip:1
+::unit function _extract_python @73-115 #c927f770
+::sig _extract_python(rec: FileRecord) -> None
+::algo cfg=try{=|call,ret},=,for{if{call|if{call}}},=,=,def,call an=+:6,-:2,AsyncFunctionDef:1,ClassDef:1,FunctionDef:1,Import:1,Unit:3,_first_doc_line:3,append:4,body:2,bound_from_ast:2,decorator_list:2,end_lineno:4,imports:4,isinstance:4,join:2,lineno:4,min:2,module:2,name:8,path:2,text:3,units:3,visit:2
+::unit function _brace_span @130-139 #1cc551a5
+::sig _brace_span(masked: str, open_idx: int) -> int
+::algo cfg==,for{if{+=|if{-=,if{ret}}}},ret an=-:1,==:3,len:2,range:1
+::unit function _expr_end @142-165 #6baa999f
+::sig _expr_end(masked: str, start: int) -> int
+::doc End of an expression-bodied arrow: first depth-0 ';', blank line, or EOF.
+::algo cfg==,=,while{=,if{+=|if{-=|if{+=|if{-=|if{+=|if{-=|if{ret|if{ret}}}}}}}},+=},ret an=+:1,-:1,<:1,==:14,and:3,len:2,startswith:1
+::unit function _js_doc_above @168-188 #a6c4299b
+::sig _js_doc_above(lines: list[str], start_line: int) -> str
+::algo cfg==,while{-=},if{ret},=,if{while{-=},ret},if{=,while{-=},if{for{=,if{ret}}}},ret an=+:1,-:2,<:1,>:1,>=:3,and:3,endswith:1,lstrip:2,not:1,not-in:1,rstrip:1,startswith:2,strip:7
+::unit function _extract_js @191-240 #12777d1b
+::sig _extract_js(rec: FileRecord) -> None
+::algo cfg==,=,=,=,def,for{call},=,=,def,for{=,if{call}},for{if{=,while{+=},=|=,if{cnt},=},call},for{=,if{call}},call an=!=:2,+:1,-:8,<:2,==:4,_brace_span:4,add:4,and:2,append:2,end:5,find:3,finditer:4,group:6,imports:3,in:2,join:2,lang:2,len:2,line_of:2,set:2,split:3,start:4,text:3,units:2
+::unit function extract_units @245-260 #6aca8e05
+::sig extract_units(rec: FileRecord) -> None
+::doc Populate rec.units (and doc/imports) in place.
+::algo cfg=if{call|if{call|if{call|if{for{if{=,brk}}}}}},for{call} an===:2,Unit:1,_extract_js:1,_extract_python:1,_finish:1,append:1,doc:1,in:2,lang:6,lines:1,lstrip:1,max:1,path:3,split:1,startswith:1,strip:1,text:2,units:2
+::content 261
+"""Per-language unit extraction: files -> functions/methods/classes with spans and docs.
+
+Python uses the stdlib ast (exact). JavaScript/TypeScript use a regex +
+brace-matching pass over masked text (good-enough v0; tree-sitter is the
+upgrade path). Other code languages fall back to one file-level unit so
+redundancy detection still works at file granularity.
+"""
+from __future__ import annotations
+
+import ast
+import bisect
+import hashlib
+import re
+
+from .model import FileRecord, Unit
+from .normalize import bound_from_ast, bound_names, mask_code, norm_source
+from .skeleton import js_algo, py_algo
+
+LANG_BY_EXT = {
+    ".py": "python", ".pyi": "python",
+    ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript", ".jsx": "javascript",
+    ".ts": "typescript", ".tsx": "typescript",
+    ".json": "json", ".md": "markdown", ".rst": "text", ".txt": "text",
+    ".toml": "toml", ".yaml": "yaml", ".yml": "yaml", ".ini": "toml", ".cfg": "toml",
+    ".html": "html", ".css": "css",
+    ".sh": "shell", ".bash": "shell", ".ps1": "powershell", ".sql": "sql",
+    ".c": "c", ".h": "c", ".cpp": "cpp", ".hpp": "cpp", ".cc": "cpp",
+    ".cs": "csharp", ".go": "go", ".rs": "rust", ".java": "java",
+}
+
+# Languages whose files are code but have no structural extractor yet:
+# score them as one file-level unit.
+_FILE_UNIT_LANGS = {"c", "cpp", "csharp", "go", "rust", "java", "shell", "powershell", "sql", "css"}
+
+_MIN_NORM_CHARS = 64  # below this a unit is "trivial": too small to score honestly
+
+
+def lang_for(path: str) -> str:
+    dot = path.rfind(".")
+    return LANG_BY_EXT.get(path[dot:].lower(), "text") if dot != -1 else "text"
+
+
+def _finish(unit: Unit, lang: str, path: str) -> Unit:
+    unit.lang = lang
+    unit.path = path
+    unit.norm = norm_source(unit.body, lang, unit.bound if unit.bound else None)
+    unit.fp = hashlib.sha256(unit.norm.encode("utf-8")).hexdigest()[:8]
+    if len(unit.norm) < _MIN_NORM_CHARS:
+        unit.trivial = True
+        unit.scoreable = False
+    if unit.kind == "class":
+        unit.scoreable = False  # methods are scored individually; avoid double counting
+    return unit
+
+
+# ---------------------------------------------------------------- python
+
+def _py_signature(node) -> str:
+    try:
+        sig = f"{node.name}({ast.unparse(node.args)})"
+        if getattr(node, "returns", None) is not None:
+            sig += f" -> {ast.unparse(node.returns)}"
+        return sig
+    except Exception:
+        return f"{node.name}(...)"
+
+
+def _first_doc_line(node) -> str:
+    doc = ast.get_docstring(node)
+    return doc.strip().splitlines()[0][:200] if doc else ""
+
+
+def _extract_python(rec: FileRecord) -> None:
+    try:
+        tree = ast.parse(rec.text)
+    except SyntaxError:
+        rec.units.append(Unit("file", rec.path, rec.path, "(unparseable python)",
+                              1, max(rec.lines, 1), body=rec.text))
+        return
+    rec.doc = _first_doc_line(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            rec.imports.extend(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            rec.imports.append(node.module)
+    rec.imports = sorted(set(rec.imports))[:20]
+    lines = rec.text.split("\n")
+
+    def visit(body, prefix: str) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                rec.units.append(Unit(
+                    kind="method" if prefix else "function",
+                    name=node.name, qualname=prefix + node.name,
+                    signature=_py_signature(node),
+                    start=start, end=node.end_lineno,
+                    doc=_first_doc_line(node),
+                    body="\n".join(lines[start - 1:node.end_lineno]),
+                    bound=bound_from_ast(node),
+                    algo=py_algo(node, node.name),
+                ))
+            elif isinstance(node, ast.ClassDef):
+                start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                rec.units.append(Unit(
+                    kind="class", name=node.name, qualname=prefix + node.name,
+                    signature=f"class {node.name}",
+                    start=start, end=node.end_lineno,
+                    doc=_first_doc_line(node),
+                    body="\n".join(lines[start - 1:node.end_lineno]),
+                    bound=bound_from_ast(node),
+                ))
+                visit(node.body, prefix + node.name + ".")
+
+    visit(tree.body, "")
+
+
+# ---------------------------------------------------------------- javascript / typescript
+
+_JS_FUNC = re.compile(
+    r"(?m)^[ \t]*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(")
+_JS_ARROW = re.compile(
+    r"(?m)^[ \t]*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
+    r"(?:async\s+)?(?:function\b\s*\*?|(?:\([^()\n]*\)|[A-Za-z_$][\w$]*)\s*=>)")
+_JS_CLASS = re.compile(r"(?m)^[ \t]*(?:export\s+)?(?:default\s+)?class\s+([A-Za-z_$][\w$]*)")
+_JS_IMPORT = re.compile(r"(?m)^\s*import\b[^;\n]*?from\s+['\"]([^'\"]+)['\"]"
+                        r"|require\(\s*['\"]([^'\"]+)['\"]\s*\)")
+
+
+def _brace_span(masked: str, open_idx: int) -> int:
+    depth = 0
+    for i in range(open_idx, len(masked)):
+        if masked[i] == "{":
+            depth += 1
+        elif masked[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(masked) - 1
+
+
+def _expr_end(masked: str, start: int) -> int:
+    """End of an expression-bodied arrow: first depth-0 ';', blank line, or EOF."""
+    p = b = c = 0
+    i = start
+    while i < len(masked):
+        ch = masked[i]
+        if ch == "(":
+            p += 1
+        elif ch == ")":
+            p -= 1
+        elif ch == "[":
+            b += 1
+        elif ch == "]":
+            b -= 1
+        elif ch == "{":
+            c += 1
+        elif ch == "}":
+            c -= 1
+        elif ch == ";" and p == b == c == 0:
+            return i
+        elif ch == "\n" and p == b == c == 0 and masked.startswith("\n", i + 1):
+            return i
+        i += 1
+    return len(masked) - 1
+
+
+def _js_doc_above(lines: list[str], start_line: int) -> str:
+    i = start_line - 2  # 0-based index of the line above the unit
+    while i >= 0 and not lines[i].strip():
+        i -= 1
+    if i < 0:
+        return ""
+    s = lines[i].strip()
+    if s.startswith("//"):
+        while i > 0 and lines[i - 1].strip().startswith("//"):
+            i -= 1
+        return lines[i].strip().lstrip("/").strip()[:200]
+    if s.endswith("*/"):
+        j = i
+        while j >= 0 and "/*" not in lines[j]:
+            j -= 1
+        if j >= 0:
+            for cand in lines[j:i + 1]:
+                cleaned = cand.strip().lstrip("/*").rstrip("*/").strip(" *")
+                if cleaned:
+                    return cleaned[:200]
+    return ""
+
+
+def _extract_js(rec: FileRecord) -> None:
+    masked = mask_code(rec.text, rec.lang)
+    lines = rec.text.split("\n")
+    masked_lines = masked.split("\n")
+    nl = [i for i, ch in enumerate(masked) if ch == "\n"]
+
+    def line_of(offset: int) -> int:
+        return bisect.bisect_right(nl, offset - 1) + 1
+
+    for m in _JS_IMPORT.finditer(rec.text):
+        rec.imports.append(m.group(1) or m.group(2))
+    rec.imports = sorted(set(filter(None, rec.imports)))[:20]
+
+    seen_spans: set[tuple[int, int]] = set()
+
+    def add(kind: str, name: str, start_off: int, end_off: int) -> None:
+        s, e = line_of(start_off), line_of(end_off)
+        if (s, e) in seen_spans:
+            return
+        seen_spans.add((s, e))
+        body = "\n".join(lines[s - 1:e])
+        masked_body = "\n".join(masked_lines[s - 1:e])
+        sig = body.split("\n", 1)[0].strip()[:160]
+        rec.units.append(Unit(kind=kind, name=name, qualname=name, signature=sig,
+                              start=s, end=e, doc=_js_doc_above(lines, s), body=body,
+                              bound=bound_names(body, rec.lang),
+                              algo=js_algo(masked_body, name) if kind == "function" else ""))
+
+    for m in _JS_FUNC.finditer(masked):
+        ob = masked.find("{", m.end() - 1)
+        if ob != -1:
+            add("function", m.group(1), m.start(), _brace_span(masked, ob))
+    for m in _JS_ARROW.finditer(masked):
+        if m.group(0).rstrip().endswith("=>"):
+            k = m.end()
+            while k < len(masked) and masked[k] in " \t\r\n":
+                k += 1
+            end = _brace_span(masked, k) if k < len(masked) and masked[k] == "{" else _expr_end(masked, k)
+        else:
+            ob = masked.find("{", m.end() - 1)
+            if ob == -1:
+                continue
+            end = _brace_span(masked, ob)
+        add("function", m.group(1), m.start(), end)
+    for m in _JS_CLASS.finditer(masked):
+        ob = masked.find("{", m.end())
+        if ob != -1:
+            add("class", m.group(1), m.start(), _brace_span(masked, ob))
+
+    rec.units.sort(key=lambda u: (u.start, u.end))
+
+
+# ---------------------------------------------------------------- dispatch
+
+def extract_units(rec: FileRecord) -> None:
+    """Populate rec.units (and doc/imports) in place."""
+    if rec.lang == "python":
+        _extract_python(rec)
+    elif rec.lang in ("javascript", "typescript"):
+        _extract_js(rec)
+    elif rec.lang in _FILE_UNIT_LANGS:
+        rec.units.append(Unit("file", rec.path, rec.path, f"({rec.lang} file)",
+                              1, max(rec.lines, 1), body=rec.text))
+    elif rec.lang == "markdown":
+        for line in rec.text.split("\n"):
+            if line.startswith("#"):
+                rec.doc = line.lstrip("#").strip()[:200]
+                break
+    for u in rec.units:
+        _finish(u, rec.lang, rec.path)
+
+::endfile
+
+::file cm/ignore.py
+::lang python
+::sha c35c63d81b85
+::lines 124
+::doc Gitignore-style rules for .cmignore (subset: globs, **, negation, dir-only, anchoring).
+::imports __future__, dataclasses, pathlib, re
+::unit class Rule @25-30 #be1c66e2
+::sig class Rule
+::unit function _glob_to_regex @33-71 #8b3bbd1f
+::sig _glob_to_regex(pat: str) -> str
+::doc Translate a gitignore glob into a regex over posix relpaths.
+::algo cfg==,while{=,if{if{call,+=|if{call,+=|call,+=}}|if{call,+=|if{=,if{+=},if{+=},while{+=},if{call,+=|=,if{=},call,=}|call,+=}}}},ret an=!=:1,+:6,<:4,==:4,>=:1,and:3,append:7,escape:2,in:1,join:1,len:1,startswith:3
+::unit function _ancestors @74-76 #c5f7ab0f
+::sig _ancestors(relpath: str) -> list[str]
+::algo cfg==,ret an=join:1,len:1,range:1,split:1
+::unit class IgnoreRules @79-123 #bc5a87c9
+::sig class IgnoreRules
+::doc Ordered rule list; last matching rule wins (gitignore semantics).
+::unit method IgnoreRules.__init__ @82-102 #69148c07
+::sig __init__(self, lines: list[str] | None=None, use_defaults: bool=True)
+::algo cfg==,for{=,if{cnt},=,if{=},=,=,=,=,=,if{cnt},if{=},=,=,call} an=+:4,Rule:1,_glob_to_regex:1,append:1,compile:1,endswith:1,in:1,list:1,lstrip:2,not:2,or:2,rstrip:2,rules:2,startswith:3,strip:2,|b:1
+::unit method IgnoreRules._matches @104-108 #fec9cfe3
+::sig _matches(self, rule: Rule, relpath: str, is_dir: bool) -> bool
+::algo cfg=if{ret},ret an=_ancestors:1,and:1,any:1,dir_only:1,match:2,not:1,or:1,regex:2
+::unit method IgnoreRules.ignored @110-115 #8114a92e
+::sig ignored(self, relpath: str, is_dir: bool) -> bool
+::algo cfg==,for{if{=}},ret an=_matches:1,negated:1,not:1,rules:1
+::unit method IgnoreRules.load @117-123 #cbe6dbc3
+::sig load(cls, root: Path) -> 'IgnoreRules'
+::algo cfg==,=,if{=},ret an=/:1,cls:1,is_file:1,read_text:1,splitlines:1
+::content 124
+"""Gitignore-style rules for .cmignore (subset: globs, **, negation, dir-only, anchoring)."""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+# Always applied before user rules. `*.cm` is a hard rule: the compiler must
+# never ingest its own output, or PROJECT.cm would grow without bound.
+DEFAULT_RULES = [
+    ".git/", ".hg/", ".svn/",
+    "__pycache__/", "*.pyc", "*.pyo",
+    ".venv/", "venv/", ".tox/", ".mypy_cache/", ".pytest_cache/", ".ruff_cache/",
+    "node_modules/", "dist/", "build/", ".next/", "out/", "target/", "*.egg-info/",
+    ".idea/", ".vscode/", ".claude/", ".DS_Store",
+    "*.cm", ".cm/",
+    "*.min.js", "*.map", "*.lock", "package-lock.json",
+    "*.png", "*.jpg", "*.jpeg", "*.gif", "*.ico", "*.pdf",
+    "*.zip", "*.gz", "*.tar", "*.7z",
+    "*.exe", "*.dll", "*.so", "*.dylib", "*.bin",
+    "*.woff", "*.woff2", "*.ttf", "*.eot",
+]
+
+
+@dataclass
+class Rule:
+    pattern: str
+    regex: re.Pattern
+    negated: bool
+    dir_only: bool
+
+
+def _glob_to_regex(pat: str) -> str:
+    """Translate a gitignore glob into a regex over posix relpaths."""
+    i, n, out = 0, len(pat), []
+    while i < n:
+        c = pat[i]
+        if c == "*":
+            if pat.startswith("**/", i):
+                out.append("(?:.*/)?")
+                i += 3
+            elif pat.startswith("**", i):
+                out.append(".*")
+                i += 2
+            else:
+                out.append("[^/]*")
+                i += 1
+        elif c == "?":
+            out.append("[^/]")
+            i += 1
+        elif c == "[":
+            j = i + 1
+            if j < n and pat[j] in "!^":
+                j += 1
+            if j < n and pat[j] == "]":
+                j += 1
+            while j < n and pat[j] != "]":
+                j += 1
+            if j >= n:
+                out.append(re.escape(c))
+                i += 1
+            else:
+                cls = pat[i + 1:j]
+                if cls.startswith("!"):
+                    cls = "^" + cls[1:]
+                out.append("[" + cls + "]")
+                i = j + 1
+        else:
+            out.append(re.escape(c))
+            i += 1
+    return "".join(out)
+
+
+def _ancestors(relpath: str) -> list[str]:
+    parts = relpath.split("/")
+    return ["/".join(parts[:k]) for k in range(1, len(parts))]
+
+
+class IgnoreRules:
+    """Ordered rule list; last matching rule wins (gitignore semantics)."""
+
+    def __init__(self, lines: list[str] | None = None, use_defaults: bool = True):
+        self.rules: list[Rule] = []
+        for raw in (DEFAULT_RULES if use_defaults else []) + list(lines or []):
+            line = raw.rstrip("\n")
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            negated = line.startswith("!")
+            if negated:
+                line = line[1:]
+            line = line.strip()
+            dir_only = line.endswith("/")
+            line = line.rstrip("/")
+            anchored = line.startswith("/")
+            line = line.lstrip("/")
+            if not line:
+                continue
+            if "/" in line:
+                anchored = True  # gitignore: a slash anywhere anchors to root
+            prefix = "" if anchored else "(?:.*/)?"
+            regex = re.compile("^" + prefix + _glob_to_regex(line) + "$")
+            self.rules.append(Rule(raw, regex, negated, dir_only))
+
+    def _matches(self, rule: Rule, relpath: str, is_dir: bool) -> bool:
+        if rule.regex.match(relpath) and (is_dir or not rule.dir_only):
+            return True
+        # A rule matching a containing directory covers everything beneath it.
+        return any(rule.regex.match(anc) for anc in _ancestors(relpath))
+
+    def ignored(self, relpath: str, is_dir: bool) -> bool:
+        verdict = False
+        for rule in self.rules:
+            if self._matches(rule, relpath, is_dir):
+                verdict = not rule.negated
+        return verdict
+
+    @classmethod
+    def load(cls, root: Path) -> "IgnoreRules":
+        cmignore = root / ".cmignore"
+        lines = []
+        if cmignore.is_file():
+            lines = cmignore.read_text(encoding="utf-8", errors="replace").splitlines()
+        return cls(lines)
+
+::endfile
+
+::file cm/model.py
+::lang python
+::sha ba56c11d1ca6
+::lines 62
+::doc Shared data records for the cm pipeline.
+::imports __future__, dataclasses
+::unit class Unit @7-26 #c730291d
+::sig class Unit
+::doc One indexable section of a file: a function, method, class, or the file itself.
+::unit class FileRecord @29-41 #c0b953ce
+::sig class FileRecord
+::unit class ScanResult @44-61 #666d505d
+::sig class ScanResult
+::unit method ScanResult.all_units @54-61 #f295f91a
+::sig all_units(self, scoreable_only: bool=False) -> list[Unit]
+::algo cfg==,for{for{if{cnt},call}},ret an=and:1,append:1,not:1,records:1,scoreable:1,units:1
+::content 62
+"""Shared data records for the cm pipeline."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Unit:
+    """One indexable section of a file: a function, method, class, or the file itself."""
+
+    kind: str  # "function" | "method" | "class" | "file"
+    name: str
+    qualname: str
+    signature: str
+    start: int  # 1-based line span, inclusive
+    end: int
+    doc: str = ""
+    body: str = ""
+    norm: str = ""  # normalized body: bound names alpha-renamed, anchors kept
+    fp: str = ""  # structural fingerprint: sha256(norm)[:8]
+    algo: str = ""  # algorithm skeleton: control-flow shape + anchor multiset
+    bound: frozenset = frozenset()  # names this unit binds (params, locals, own name)
+    scoreable: bool = True  # participates in redundancy scoring
+    trivial: bool = False  # too small to score meaningfully
+    path: str = ""  # posix relpath of owning file
+    lang: str = ""
+
+
+@dataclass
+class FileRecord:
+    path: str  # posix relpath from root
+    abspath: str
+    lang: str
+    text: str  # utf-8 decoded, newlines normalized to \n
+    sha: str  # sha256(text)[:12]
+    size: int  # raw size in bytes on disk
+    lines: int
+    eol: str = "lf"  # "lf" | "crlf" | "mixed"
+    doc: str = ""
+    imports: list[str] = field(default_factory=list)
+    units: list[Unit] = field(default_factory=list)
+
+
+@dataclass
+class ScanResult:
+    root: str
+    records: list[FileRecord] = field(default_factory=list)
+    skipped_binary: list[str] = field(default_factory=list)
+    skipped_large: list[str] = field(default_factory=list)
+    changed: list[str] = field(default_factory=list)  # paths (re)analyzed this scan
+    cache_hits: int = 0
+    mtimes: dict = field(default_factory=dict)  # path -> st_mtime_ns
+
+    def all_units(self, scoreable_only: bool = False) -> list[Unit]:
+        out = []
+        for rec in self.records:
+            for u in rec.units:
+                if scoreable_only and not u.scoreable:
+                    continue
+                out.append(u)
+        return out
+
+::endfile
+
+::file cm/normalize.py
+::lang python
+::sha 7baf3b14b8af
+::lines 266
+::doc Code normalization for structural comparison.
+::imports __future__, ast, keyword, re, textwrap
+::unit function _segments @59-126 #fdcc3635
+::sig _segments(text: str, lang: str) -> list[tuple[str, int, int]]
+::doc Split text into ("code"|"comment"|"string", start, end) segments.
+::algo cfg==,if{ret},=,=,=,=,def,while{=,if{call,=,=,call,=,cnt},=,if{call,=,=,call,=,cnt},if{=,call,=,while{if{+=,cnt},if{+=,brk},+=},=,call,=,cnt},if{call,=,while{=,if{+=,cnt},if{+=,brk},if{brk},+=},=,call,=,cnt},+=},call,ret an=!=:1,+:5,-:2,<:3,==:7,>:1,and:4,append:5,close_code:5,find:2,get:1,in:1,is:1,len:4,min:2,next:1,or:2,startswith:5
+::unit function mask_code @129-141 #79342546
+::sig mask_code(text: str, lang: str) -> str
+::doc Same-length text with comment and string interiors blanked (newlines kept).
+::algo cfg==,for{=,if{call|if{call|=,call}}},ret an=+:2,-:2,==:4,>:1,_segments:1,append:3,join:3,len:1
+::unit function bound_from_ast @146-168 #b3ea4b8c
+::sig bound_from_ast(node) -> frozenset
+::doc Names bound inside a Python AST node (params, locals, nested defs).
+::algo cfg==,for{if{call|if{call|if{call|if{call|if{call|if{call|if{call}}}}}}}},ret an=-:1,AsyncFunctionDef:1,ClassDef:1,Del:1,ExceptHandler:1,FunctionDef:1,Global:1,Import:1,ImportFrom:1,MatchAs:1,MatchStar:1,Name:1,Nonlocal:1,Store:1,add:5,and:3,arg:2,asname:1,ctx:1,isinstance:8,name:6,names:2,set:2,update:2
+::unit function _js_params @180-186 #293bb1c7
+::sig _js_params(param_src: str) -> set[str]
+::algo cfg==,for{=,if{call}},ret an=add:1,group:1,match:1,set:1,split:1
+::unit function _js_bound @189-207 #40fc3a97
+::sig _js_bound(masked: str) -> frozenset
+::doc Heuristic bound-name set for JS/TS (no AST): declarations, params, catch.
+::algo cfg==,call,for{for{=,if{call}}},for{if{call},call},for{call},call,call,ret an=-:1,_js_params:2,add:2,findall:1,finditer:6,frozenset:1,group:8,set:1,split:1,update:5
+::unit function bound_names @210-219 #62dfaa23
+::sig bound_names(text: str, lang: str) -> frozenset
+::doc Bound-name set for a source fragment; empty when unknown/unparseable.
+::algo cfg=if{try{ret|ret}},if{ret},ret an===:1,_js_bound:1,bound_from_ast:1,dedent:1,frozenset:2,in:1,mask_code:1,parse:1
+::unit function norm_source @224-265 #17746fad
+::sig norm_source(text: str, lang: str, bound: frozenset | None=None) -> str
+::doc Two-tier normalized skeleton (see module docstring).
+::algo cfg=if{=},=,for{if{call|if{call|call}}},=,=,=,=,=,for{=,if{call|if{call|if{if{call|if{call|if{call|call}}}|call}}},=},ret an=!=:1,==:3,_segments:1,append:10,bound_names:1,endswith:1,finditer:1,get:1,group:1,in:3,is:1,isalpha:1,isdigit:1,join:2,len:1,or:1,setdefault:1,|b:1
+::content 266
+"""Code normalization for structural comparison.
+
+Three views of source text come out of one comment/string-aware scanner:
+
+- mask_code(): same-length text with comment and string interiors blanked.
+  Offsets and line numbers stay valid, so extractors can brace-match on it.
+- bound_names(): the identifiers a fragment *binds* — params, locals, its own
+  name. Everything else an identifier can be is an anchor: builtins, imports,
+  attributes, called functions — the names that reach outside the fragment.
+- norm_source(): comments dropped, strings -> S, numbers -> N, bound
+  identifiers alpha-renamed to V0, V1, ... in order of appearance, anchors
+  kept verbatim (two-tier renaming). Naming and comments can't hide
+  structure, but *what the code calls into* still distinguishes it:
+  assertGreaterEqual vs assertLessEqual no longer normalize identically.
+"""
+from __future__ import annotations
+
+import ast
+import keyword
+import re
+import textwrap
+
+# lang -> (line_comment, block_pairs, quotes, triple_quotes, template_literal)
+_SCAN_CFG: dict[str, tuple | None] = {
+    "python": ("#", [], "'\"", True, False),
+    "javascript": ("//", [("/*", "*/")], "'\"", False, True),
+    "typescript": ("//", [("/*", "*/")], "'\"", False, True),
+    "c": ("//", [("/*", "*/")], "'\"", False, False),
+    "cpp": ("//", [("/*", "*/")], "'\"", False, False),
+    "csharp": ("//", [("/*", "*/")], "'\"", False, False),
+    "go": ("//", [("/*", "*/")], "'\"", False, True),
+    "rust": ("//", [("/*", "*/")], "\"", False, False),
+    "java": ("//", [("/*", "*/")], "'\"", False, False),
+    "shell": ("#", [], "'\"", False, False),
+    "powershell": ("#", [("<#", "#>")], "'\"", False, False),
+    "toml": ("#", [], "'\"", True, False),
+    "yaml": ("#", [], "'\"", False, False),
+    "sql": ("--", [("/*", "*/")], "'\"", False, False),
+    "_default": None,  # no comment/string structure known: treat all as code
+}
+
+_KEYWORDS: dict[str, frozenset] = {
+    "python": frozenset(keyword.kwlist + keyword.softkwlist),
+    "javascript": frozenset(
+        "function var let const if else for while do return class new this super typeof "
+        "instanceof async await import export from default null undefined true false try "
+        "catch finally throw switch case break continue delete in of yield static get set "
+        "extends void".split()
+    ),
+}
+_KEYWORDS["typescript"] = _KEYWORDS["javascript"] | frozenset(
+    "interface type enum implements declare readonly public private protected namespace "
+    "abstract as is keyof infer never unknown any string number boolean".split()
+)
+
+_TOKEN = re.compile(r'[A-Za-z_$][\w$]*|\d[\w.]*|"S"|[^\sA-Za-z_$0-9]+')
+
+
+def _segments(text: str, lang: str) -> list[tuple[str, int, int]]:
+    """Split text into ("code"|"comment"|"string", start, end) segments."""
+    cfg = _SCAN_CFG.get(lang, _SCAN_CFG["_default"])
+    if cfg is None:
+        return [("code", 0, len(text))] if text else []
+    line_c, blocks, quotes, triples, template = cfg
+    segs: list[tuple[str, int, int]] = []
+    i, n = 0, len(text)
+    code_start = 0
+
+    def close_code(end: int) -> None:
+        if end > code_start:
+            segs.append(("code", code_start, end))
+
+    while i < n:
+        c = text[i]
+        if line_c and text.startswith(line_c, i):
+            close_code(i)
+            j = text.find("\n", i)
+            j = n if j == -1 else j  # newline stays in the following code segment
+            segs.append(("comment", i, j))
+            i = code_start = j
+            continue
+        block = next((b for b in blocks if text.startswith(b[0], i)), None)
+        if block:
+            close_code(i)
+            j = text.find(block[1], i + len(block[0]))
+            j = n if j == -1 else j + len(block[1])
+            segs.append(("comment", i, j))
+            i = code_start = j
+            continue
+        if triples and (text.startswith('"""', i) or text.startswith("'''", i)):
+            q = text[i:i + 3]
+            close_code(i)
+            j = i + 3
+            while j < n:
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text.startswith(q, j):
+                    j += 3
+                    break
+                j += 1
+            j = min(j, n)
+            segs.append(("string", i, j))
+            i = code_start = j
+            continue
+        if c in quotes or (template and c == "`"):
+            close_code(i)
+            j = i + 1
+            while j < n:
+                ch = text[j]
+                if ch == "\\":
+                    j += 2
+                    continue
+                if ch == c:
+                    j += 1
+                    break
+                if ch == "\n" and c != "`":
+                    break  # unterminated single-line string
+                j += 1
+            j = min(j, n)
+            segs.append(("string", i, j))
+            i = code_start = j
+            continue
+        i += 1
+    close_code(n)
+    return segs
+
+
+def mask_code(text: str, lang: str) -> str:
+    """Same-length text with comment and string interiors blanked (newlines kept)."""
+    out = []
+    for kind, a, b in _segments(text, lang):
+        seg = text[a:b]
+        if kind == "code":
+            out.append(seg)
+        elif kind == "comment":
+            out.append("".join(ch if ch == "\n" else " " for ch in seg))
+        else:  # string: keep delimiters, blank the interior
+            inner = "".join(ch if ch == "\n" else " " for ch in seg[1:-1])
+            out.append(seg[0] + inner + (seg[-1] if len(seg) > 1 else ""))
+    return "".join(out)
+
+
+# ---------------------------------------------------------------- bound names
+
+def bound_from_ast(node) -> frozenset:
+    """Names bound inside a Python AST node (params, locals, nested defs).
+
+    Names declared global/nonlocal and imported names are excluded: they refer
+    outward, which makes them anchors even though the syntax binds them.
+    """
+    bound, outward = set(), set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)):
+            bound.add(n.id)
+        elif isinstance(n, ast.arg):
+            bound.add(n.arg)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(n.name)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            bound.add(n.name)
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            outward.update(n.names)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            outward.update((a.asname or a.name).split(".")[0] for a in n.names)
+        elif isinstance(n, (ast.MatchAs, ast.MatchStar)) and n.name:
+            bound.add(n.name)
+    return frozenset(bound - outward)
+
+
+_JS_ID = r"[A-Za-z_$][\w$]*"
+_JS_DECL = re.compile(rf"\b(?:const|let|var)\s+({_JS_ID})")
+_JS_DESTRUCT = re.compile(r"\b(?:const|let|var)\s*[\[{]([^\]}]*)[\]}]")
+_JS_FUNC_SIG = re.compile(rf"\bfunction\s*\*?\s*({_JS_ID})?\s*\(([^()]*)\)")
+_JS_PAREN_ARROW = re.compile(r"\(([^()]*)\)\s*=>")
+_JS_BARE_ARROW = re.compile(rf"\b({_JS_ID})\s*=>")
+_JS_CATCH = re.compile(rf"\bcatch\s*\(\s*({_JS_ID})")
+
+
+def _js_params(param_src: str) -> set[str]:
+    out = set()
+    for piece in param_src.split(","):
+        m = re.match(rf"\s*(?:\.\.\.)?\s*({_JS_ID})", piece)
+        if m:
+            out.add(m.group(1))
+    return out
+
+
+def _js_bound(masked: str) -> frozenset:
+    """Heuristic bound-name set for JS/TS (no AST): declarations, params, catch."""
+    out: set[str] = set()
+    out.update(m.group(1) for m in _JS_DECL.finditer(masked))
+    for m in _JS_DESTRUCT.finditer(masked):
+        for piece in m.group(1).split(","):
+            # `{k: v}` binds v (k stays an anchor); shorthand `{k}` binds k
+            ids = re.findall(_JS_ID, piece)
+            if ids:
+                out.add(ids[-1])
+    for m in _JS_FUNC_SIG.finditer(masked):
+        if m.group(1):
+            out.add(m.group(1))
+        out.update(_js_params(m.group(2)))
+    for m in _JS_PAREN_ARROW.finditer(masked):
+        out.update(_js_params(m.group(1)))
+    out.update(m.group(1) for m in _JS_BARE_ARROW.finditer(masked))
+    out.update(m.group(1) for m in _JS_CATCH.finditer(masked))
+    return frozenset(out)
+
+
+def bound_names(text: str, lang: str) -> frozenset:
+    """Bound-name set for a source fragment; empty when unknown/unparseable."""
+    if lang == "python":
+        try:
+            return bound_from_ast(ast.parse(textwrap.dedent(text)))
+        except SyntaxError:
+            return frozenset()
+    if lang in ("javascript", "typescript"):
+        return _js_bound(mask_code(text, lang))
+    return frozenset()
+
+
+# ---------------------------------------------------------------- normalization
+
+def norm_source(text: str, lang: str, bound: frozenset | None = None) -> str:
+    """Two-tier normalized skeleton (see module docstring).
+
+    bound=None computes the bound set from the text itself (right for whole
+    units/files). Pass a precomputed set when normalizing fragments that lack
+    context, e.g. single lines of a known unit — an explicitly empty set means
+    "rename nothing", not "recompute".
+    """
+    if bound is None:
+        bound = bound_names(text, lang)
+    parts = []
+    for kind, a, b in _segments(text, lang):
+        if kind == "code":
+            parts.append(text[a:b])
+        elif kind == "string":
+            parts.append(' "S" ')
+        else:
+            parts.append(" ")
+    stripped = "".join(parts)
+    kw = _KEYWORDS.get(lang, _KEYWORDS["javascript"] if lang != "python" else _KEYWORDS["python"])
+    rename: dict[str, str] = {}
+    out = []
+    prev = ""
+    for m in _TOKEN.finditer(stripped):
+        t = m.group()
+        if t == '"S"':
+            out.append("S")
+        elif t[0].isdigit():
+            out.append("N")
+        elif t[0].isalpha() or t[0] in "_$":
+            if prev.endswith("."):
+                out.append(t)  # attribute access: always an anchor
+            elif t in kw:
+                out.append(t)
+            elif t in bound:
+                out.append(rename.setdefault(t, f"V{len(rename)}"))
+            else:
+                out.append(t)  # free name: semantic anchor, kept verbatim
+        else:
+            out.append(t)
+        prev = t
+    return " ".join(out)
+
+::endfile
+
+::file cm/redundancy.py
+::lang python
+::sha 7ab1ed344713
+::lines 188
+::doc Information-theoretic redundancy scoring.
+::imports __future__, difflib, lzma, model, normalize, skeleton, zlib
+::unit function standalone_bits @33-36 #a69962e8
+::sig standalone_bits(data: bytes) -> float
+::algo cfg=if{ret},ret an=*:1,_zlib_deflate:1,float:1,len:1,max:1,not:1
+::unit function _zlib_deflate @39-45 #141ab4fe
+::sig _zlib_deflate(data: bytes, zdict: bytes | None=None) -> bytes
+::algo cfg=if{=|=},ret an=+:1,-:3,DEFLATED:2,MAX_WBITS:2,Z_DEFAULT_STRATEGY:1,compress:1,compressobj:2,flush:1,|b:1
+::unit function pair_redundancy @48-53 #c97a8b0f
+::sig pair_redundancy(new_norm: str, cand_norm: str) -> float
+::doc 1 - C(new|cand)/C(new) via zlib preset-dictionary compression.
+::algo cfg==,=,=,ret an=*:1,-:1,/:1,_zlib_deflate:1,encode:2,float:1,len:1,max:2,standalone_bits:1
+::unit function corpus_conditional_bits @56-62 #37eb9c4f
+::sig corpus_conditional_bits(new_norm: str, ctx_norms: list[str]) -> float
+::doc C(new | ctx) via lzma: C(ctx + new) - C(ctx).
+::algo cfg==,if{ret},=,ret an=*:2,+:2,-:1,compress:3,encode:2,float:2,join:1,len:3,max:1,not:1
+::unit function token_similarity @65-66 #67906f29
+::sig token_similarity(a: str, b: str, cap: int=4000) -> float
+::algo cfg=ret an=SequenceMatcher:1,ratio:1
+::unit function overlap_blocks @69-93 #1f0ab9aa
+::sig overlap_blocks(target: Unit, cand: Unit, min_lines: int=3, limit: int=3) -> list[dict]
+::doc Aligned matching line blocks between two units, in original line numbers.
+::algo cfg==,=,=,=,=,for{if{cnt},if{cnt},=,call,if{brk}},ret an=+:8,-:2,<:2,>=:1,SequenceMatcher:1,a:6,append:1,b:2,body:2,bound:2,get_matching_blocks:1,join:1,lang:2,len:1,norm_source:2,size:5,split:2,start:4,strip:3,sum:1
+::unit function score_targets @96-164 #d9633fff
+::sig score_targets(targets: list[Unit], corpus: list[Unit], top: int=3) -> list[dict]
+::doc Score each target unit against the corpus. Returns one report dict per unit.
+::algo cfg==,=,for{call},for{=,=,=,if{call,call,cnt},=,=,for{if{cnt},if{cnt},call},call,=,=,=,=,=,=,for{if{cnt},=,=,if{=,if{=}},call},call,call},ret an=*:1,-:1,/:1,<=:1,==:7,>=:1,algo:4,algo_similarity:1,anchor_diff:1,and:4,append:5,end:4,fp:7,max:2,norm:7,not:3,or:3,path:7,qualname:3,round:9,scoreable:2,start:6,trivial:2,update:2
+::unit function verdict @167-187 #25c750c9
+::sig verdict(rep: dict, warn: float, fail: float) -> str
+::doc Classify a unit report from two corroborating channels.
+::algo cfg==,=,=,=,if{ret},if{ret},ret an=+:2,>=:5,and:1,get:3,is:1,min:2,or:3
+::content 188
+"""Information-theoretic redundancy scoring.
+
+A compressor stands in for the probability model q: the cost in bits of
+encoding x under q is len(compress(x)) * 8, i.e. an upper bound on the
+cross-entropy of x. Two quantities drive everything:
+
+  standalone_bits(u)          C(u)      what u costs with no context
+  conditional_bits(u, K)      C(u|K)    what u costs given corpus K as context
+
+Redundancy R(u) = 1 - C(u|K) / C(u), in [0, 1]. R near 1 means the corpus
+already predicts u — the unit adds almost no new information to the project.
+
+Pairwise scoring (the "where") uses zlib with the candidate's normalized body
+as a preset dictionary; corpus scoring (the overall verdict) uses lzma with
+the best candidates concatenated as context. The "why" is recovered by
+aligning matching line blocks between the unit and its best candidates.
+"""
+from __future__ import annotations
+
+import lzma
+import zlib
+from difflib import SequenceMatcher
+
+from .model import Unit
+from .normalize import norm_source
+from .skeleton import algo_similarity, anchor_diff
+
+_CTX_SEP = b"\n\x00\n"
+_CTX_CAP = 262_144  # cap on corpus context fed to lzma, in chars
+_TOP_CTX_UNITS = 64
+
+
+def standalone_bits(data: bytes) -> float:
+    if not data:
+        return 8.0
+    return max(8.0, float(len(_zlib_deflate(data)) * 8))
+
+
+def _zlib_deflate(data: bytes, zdict: bytes | None = None) -> bytes:
+    if zdict:
+        c = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS, 9,
+                             zlib.Z_DEFAULT_STRATEGY, zdict[-32768:])
+    else:
+        c = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS, 9)
+    return c.compress(data) + c.flush()
+
+
+def pair_redundancy(new_norm: str, cand_norm: str) -> float:
+    """1 - C(new|cand)/C(new) via zlib preset-dictionary compression."""
+    nb = new_norm.encode("utf-8")
+    base = standalone_bits(nb)
+    cond = max(8.0, float(len(_zlib_deflate(nb, cand_norm.encode("utf-8"))) * 8))
+    return max(0.0, 1.0 - cond / base)
+
+
+def corpus_conditional_bits(new_norm: str, ctx_norms: list[str]) -> float:
+    """C(new | ctx) via lzma: C(ctx + new) - C(ctx)."""
+    nb = new_norm.encode("utf-8")
+    if not ctx_norms:
+        return float(len(lzma.compress(nb)) * 8)
+    ctx = "\n".join(ctx_norms)[:_CTX_CAP].encode("utf-8") + _CTX_SEP
+    return max(8.0, float((len(lzma.compress(ctx + nb)) - len(lzma.compress(ctx))) * 8))
+
+
+def token_similarity(a: str, b: str, cap: int = 4000) -> float:
+    return SequenceMatcher(None, a[:cap], b[:cap], autojunk=False).ratio()
+
+
+def overlap_blocks(target: Unit, cand: Unit, min_lines: int = 3, limit: int = 3) -> list[dict]:
+    """Aligned matching line blocks between two units, in original line numbers.
+
+    Lines are compared in per-line normalized form, so renamed clones still align.
+    """
+    a_raw, b_raw = target.body.split("\n"), cand.body.split("\n")
+    a = [norm_source(s, target.lang, target.bound) for s in a_raw]
+    b = [norm_source(s, cand.lang, cand.bound) for s in b_raw]
+    sm = SequenceMatcher(None, a, b, autojunk=False)
+    out = []
+    for blk in sm.get_matching_blocks():
+        if blk.size < min_lines:
+            continue
+        if sum(1 for s in a[blk.a:blk.a + blk.size] if s.strip()) < 2:
+            continue  # a run of blank/comment-only lines is not evidence
+        snippet = " / ".join(s.strip() for s in a_raw[blk.a:blk.a + 2] if s.strip())[:120]
+        out.append({
+            "target_lines": [target.start + blk.a, target.start + blk.a + blk.size - 1],
+            "match_lines": [cand.start + blk.b, cand.start + blk.b + blk.size - 1],
+            "lines": blk.size,
+            "snippet": snippet,
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list[dict]:
+    """Score each target unit against the corpus. Returns one report dict per unit."""
+    reports = []
+    fp_index: dict[str, list[Unit]] = {}
+    for c in corpus:
+        fp_index.setdefault(c.fp, []).append(c)
+
+    for t in targets:
+        nb = t.norm.encode("utf-8")
+        base = standalone_bits(nb)
+        report = {
+            "unit": t.qualname, "kind": t.kind, "file": t.path,
+            "span": [t.start, t.end], "signature": t.signature, "fp": t.fp,
+            "standalone_bits": round(base),
+            "trivial": t.trivial,
+        }
+        if t.trivial or not t.scoreable:
+            report.update(marginal_bits=round(base), redundancy=0.0, best_pair=0.0,
+                          corpus_redundancy=0.0, best_structure=None,
+                          wasted_bits=0, matches=[])
+            reports.append(report)
+            continue
+
+        scored: list[tuple[float, Unit]] = []
+        exact = [c for c in fp_index.get(t.fp, []) if not (c.path == t.path and c.start == t.start)]
+        for c in corpus:
+            if c is t or (c.path == t.path and c.start == t.start and c.end == t.end):
+                continue
+            if not c.scoreable:
+                continue
+            scored.append((1.0 if c.fp == t.fp else pair_redundancy(t.norm, c.norm), c))
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        ctx = [c.norm for _, c in scored[:_TOP_CTX_UNITS]]
+        marginal = corpus_conditional_bits(t.norm, ctx)
+        corpus_red = max(0.0, 1.0 - marginal / base) if ctx else 0.0
+        best_pair = scored[0][0] if scored else 0.0
+        redundancy = max(corpus_red, best_pair)
+
+        matches = []
+        for score, c in scored[:top]:
+            if score <= 0.05:
+                continue
+            sim = algo_similarity(t.algo, c.algo)
+            entry = {
+                "file": c.path, "unit": c.qualname, "span": [c.start, c.end],
+                "score": round(score, 3),
+                "exact_structural_dup": c.fp == t.fp,
+                "token_similarity": round(token_similarity(t.norm, c.norm), 3),
+                "algo_similarity": sim,
+                "overlap": overlap_blocks(t, c),
+            }
+            if sim is not None and score >= 0.5:
+                only_t, only_c = anchor_diff(t.algo, c.algo)
+                if only_t or only_c:
+                    entry["anchor_diff"] = {"only_target": only_t, "only_match": only_c}
+            matches.append(entry)
+        report.update(
+            marginal_bits=round(marginal),
+            redundancy=round(redundancy, 3),
+            best_pair=round(best_pair, 3),
+            corpus_redundancy=round(corpus_red, 3),
+            best_structure=matches[0]["algo_similarity"] if matches else None,
+            wasted_bits=round(base * redundancy),
+            exact_dups=[f"{c.path}#{c.qualname}" for c in exact],
+            matches=matches,
+        )
+        reports.append(report)
+    return reports
+
+
+def verdict(rep: dict, warn: float, fail: float) -> str:
+    """Classify a unit report from two corroborating channels.
+
+    The specific best-pair (info) match drives the verdict, but a "duplicate"
+    claim additionally requires the structure channel to corroborate: an
+    info-hot match whose algorithm skeleton disagrees is shared idiom, not
+    duplication, and is downgraded to "overlap". The corpus-conditional
+    measure is held to a higher bar because normalized same-language code is
+    always somewhat cross-predictable (a language prior, not duplication) —
+    it exists to catch units stitched together from several sources, which
+    no single pair reveals.
+    """
+    bp = rep.get("best_pair", 0.0)
+    cr = rep.get("corpus_redundancy", 0.0)
+    bs = rep.get("best_structure")
+    corroborated = bs is None or bs >= 0.5
+    if (bp >= fail and corroborated) or cr >= min(0.97, fail + 0.15):
+        return "duplicate"
+    if bp >= warn or cr >= min(0.92, warn + 0.30):
+        return "overlap"
+    return "novel"
+
+::endfile
+
+::file cm/scan.py
+::lang python
+::sha 30b6857730f3
+::lines 96
+::doc Tree scanning: walk the codebase, honor .cmignore, produce FileRecords.
+::imports __future__, cache, extract, hashlib, ignore, model, os, pathlib
+::unit function read_file @23-36 #f663e7f7
+::sig read_file(abspath: Path, relpath: str) -> FileRecord | None
+::doc Read and decode one file (no unit analysis). None if binary.
+::algo cfg==,if{ret},=,=,=,=,ret an=-:1,FileRecord:1,and:1,count:3,decode:1,encode:1,hexdigest:1,in:1,lang_for:1,len:2,not:1,read_bytes:1,replace:2,sha256:1,split:1,str:1,|b:1
+::unit function load_file @39-44 #8a79b0e5
+::sig load_file(abspath: Path, relpath: str) -> FileRecord | None
+::doc Read + analyze one file. None if binary.
+::algo cfg==,if{call},ret an=extract_units:1,is-not:1,read_file:1,|b:1
+::unit function scan_tree @47-95 #4e621ef4
+::sig scan_tree(root: Path, rules: IgnoreRules | None=None, exclude_abs: set[str] | None=None, cache: dict | None=None) -> ScanResult
+::algo cfg==,=,=,=,=,for{=,=,=,for{=,=,if{cnt},try{=|cnt},if{call,cnt},=,if{call,+=,=,cnt},=,if{call,cnt},=,if{call,+=|call,call},call}},call,ret an=/:1,==:4,>:1,Path:2,ScanResult:1,and:3,append:5,as_posix:1,attach_cached_units:1,cache_hits:2,changed:1,extract_units:1,get:1,ignored:2,in:1,mtimes:2,or:4,records:3,resolve:2,sorted:2,st_mtime_ns:3,st_size:2,str:3,|b:3
+::content 96
+"""Tree scanning: walk the codebase, honor .cmignore, produce FileRecords.
+
+With a cache (see cache.py) the scan is incremental: a file whose size+mtime
+match the cache is restored without touching disk content; a file whose
+content hash matches is restored without re-analysis. Only genuinely changed
+files pay for extraction, so recompiling on every change stays cheap and the
+global picture stays correct.
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+from pathlib import Path
+
+from .cache import attach_cached_units, record_from_entry
+from .extract import extract_units, lang_for
+from .ignore import IgnoreRules
+from .model import FileRecord, ScanResult
+
+MAX_FILE_BYTES = 1_048_576
+
+
+def read_file(abspath: Path, relpath: str) -> FileRecord | None:
+    """Read and decode one file (no unit analysis). None if binary."""
+    raw = abspath.read_bytes()
+    if b"\0" in raw[:8192]:
+        return None
+    text = raw.decode("utf-8", errors="replace")
+    crlf, lone_lf = text.count("\r\n"), text.count("\n") - text.count("\r\n")
+    eol = "crlf" if crlf and not lone_lf else "mixed" if crlf else "lf"
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return FileRecord(
+        path=relpath, abspath=str(abspath), lang=lang_for(relpath), text=text,
+        sha=hashlib.sha256(text.encode("utf-8")).hexdigest()[:12],
+        size=len(raw), lines=len(text.split("\n")), eol=eol,
+    )
+
+
+def load_file(abspath: Path, relpath: str) -> FileRecord | None:
+    """Read + analyze one file. None if binary."""
+    rec = read_file(abspath, relpath)
+    if rec is not None:
+        extract_units(rec)
+    return rec
+
+
+def scan_tree(root: Path, rules: IgnoreRules | None = None,
+              exclude_abs: set[str] | None = None,
+              cache: dict | None = None) -> ScanResult:
+    root = root.resolve()
+    rules = rules or IgnoreRules.load(root)
+    exclude_abs = exclude_abs or set()
+    cache = cache or {}
+    result = ScanResult(root=str(root))
+
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+        rel_dir = Path(dirpath).relative_to(root).as_posix()
+        rel_dir = "" if rel_dir == "." else rel_dir
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if not rules.ignored(f"{rel_dir}/{d}" if rel_dir else d, is_dir=True)
+        )
+        for fname in sorted(filenames):
+            rel = f"{rel_dir}/{fname}" if rel_dir else fname
+            abspath = Path(dirpath) / fname
+            if rules.ignored(rel, is_dir=False) or str(abspath.resolve()) in exclude_abs:
+                continue
+            try:
+                st = abspath.stat()
+            except OSError:
+                continue
+            if st.st_size > MAX_FILE_BYTES:
+                result.skipped_large.append(rel)
+                continue
+            entry = cache.get(rel)
+            if entry and entry["size"] == st.st_size and entry["mtime_ns"] == st.st_mtime_ns:
+                result.records.append(record_from_entry(rel, entry, str(abspath)))
+                result.cache_hits += 1
+                result.mtimes[rel] = st.st_mtime_ns
+                continue
+            rec = read_file(abspath, rel)
+            if rec is None:
+                result.skipped_binary.append(rel)
+                continue
+            result.mtimes[rel] = st.st_mtime_ns
+            if entry and entry["sha"] == rec.sha:
+                attach_cached_units(rec, entry)  # content unchanged, mtime drifted
+                result.cache_hits += 1
+            else:
+                extract_units(rec)
+                result.changed.append(rel)
+            result.records.append(rec)
+
+    result.records.sort(key=lambda r: r.path)
+    return result
+
+::endfile
+
+::file cm/skeleton.py
+::lang python
+::sha 4ebee35c7a62
+::lines 229
+::doc Algorithm skeletons: the structure channel (`::algo` in PROJECT.cm).
+::imports __future__, ast, collections, difflib, re
+::unit function _stmts @38-105 #07f805a8
+::sig _stmts(body) -> list[str]
+::algo cfg==,for{if{=,if{+=},call|if{=,if{+=},call|if{=,if{+=},call|if{=,=,if{+=},if{+=},call|if{call|if{=,call|if{call|if{call|if{call|if{call|if{call|if{call|if{call|if{call|if{call|if{call|if{call|if{=,if{cnt},if{call|if{call|call}}|if{cnt|call}}}}}}}}}}}}}}}}}}}},ret an=+:20,AnnAssign:1,Assert:1,Assign:1,AsyncFor:1,AsyncFunctionDef:1,AsyncWith:1,AugAssign:1,Await:1,Break:1,Call:1,ClassDef:1,Constant:1,Continue:1,Delete:1,Expr:1,For:1,_stmts:11,append:21,body:7,finalbody:2,isinstance:22,join:11,orelse:6 fl=rec
+::unit function _py_anchors @108-131 #460faa15
+::sig _py_anchors(node, own_name: str) -> tuple[Counter, bool, bool]
+::algo cfg==,=,=,for{if{=,=,if{+=,if{=}}|if{+=|if{+=|if{+=|if{for{+=}|if{=}}}}}}},ret an=-:1,==:1,Attribute:2,BinOp:1,BoolOp:1,Call:2,Compare:1,Counter:1,Name:1,UnaryOp:1,Yield:1,YieldFrom:1,and:1,attr:2,func:2,get:3,id:3,isinstance:9,len:1,max:1,not-in:1,op:2,type:3,walk:2
+::unit function _render @134-139 #6fd0e91b
+::sig _render(cfg: str, anchors: Counter, rec: bool, gen: bool) -> str
+::algo cfg==,=,=,=,ret an=+:1,-:1,items:1,join:2,or:1,sorted:2
+::unit function py_algo @142-146 #49f2c65f
+::sig py_algo(node, own_name: str) -> str
+::doc Skeleton of a Python function/method from its AST node.
+::algo cfg==,=,ret an=_py_anchors:1,_render:1,_stmts:1,body:1,join:1
+::unit function js_algo @160-186 #76b18772
+::sig js_algo(masked_body: str, own_name: str='') -> str
+::doc Flat skeleton of a JS/TS unit from its masked body text.
+::algo cfg==,=,for{=,if{+=|if{=|if{call}}}},=,=,for{=,if{cnt},+=,if{=}},for{+=},for{if{+=}},ret an=!=:1,+:1,-:1,==:3,Counter:1,_render:1,and:1,any:1,append:1,finditer:4,get:1,group:5,in:2,join:1,max:1,startswith:1,str:1
+::unit function _parse_algo @191-204 #64754e10
+::sig _parse_algo(s: str) -> tuple[list[str], Counter]
+::algo cfg==,=,=,=,if{for{=,if{try{=}}}},ret an=Counter:1,findall:1,group:2,int:1,rpartition:1,search:2,split:1
+::unit function algo_similarity @207-221 #b0a281e3
+::sig algo_similarity(a: str, b: str) -> float | None
+::doc Structure similarity in [0,1]: half control-flow shape, half anchor overlap.
+::algo cfg=if{ret},=,=,if{ret},=,=,=,ret an=&b:1,*:2,+:1,/:1,SequenceMatcher:1,_parse_algo:2,not:4,or:4,ratio:1,round:1,sum:2,values:2,|b:2
+::unit function anchor_diff @224-228 #1734d66a
+::sig anchor_diff(a: str, b: str, cap: int=6) -> tuple[list[str], list[str]]
+::doc Anchors present only on each side — the discrete 'why' for near-clones.
+::algo cfg==,=,ret an=-:2,_parse_algo:2,keys:2,sorted:2
+::content 229
+"""Algorithm skeletons: the structure channel (`::algo` in PROJECT.cm).
+
+A skeleton captures what survives rewriting — control-flow shape and the
+operations performed — and breaks when meaning-relevant structure changes.
+It is deliberately blind to naming, comments, and literals (the info channel
+covers text), and it preserves exactly what two-tier renaming preserves:
+anchors, the names code calls into.
+
+One line per unit:
+
+    cfg=<nested control-flow shape> an=<anchor:count,...> [fl=rec|gen|rec+gen]
+
+Python skeletons come from the AST (nested, exact). JS/TS skeletons are flat
+keyword-at-depth sequences from masked text (comparable, coarser).
+"""
+from __future__ import annotations
+
+import ast
+import re
+from collections import Counter
+from difflib import SequenceMatcher
+
+_OPS = {
+    ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/", ast.FloorDiv: "//",
+    ast.Mod: "%", ast.Pow: "**", ast.LShift: "<<", ast.RShift: ">>",
+    ast.BitOr: "|b", ast.BitAnd: "&b", ast.BitXor: "^", ast.MatMult: "@",
+    ast.Eq: "==", ast.NotEq: "!=", ast.Lt: "<", ast.LtE: "<=",
+    ast.Gt: ">", ast.GtE: ">=", ast.Is: "is", ast.IsNot: "is-not",
+    ast.In: "in", ast.NotIn: "not-in",
+    ast.And: "and", ast.Or: "or", ast.Not: "not",
+    ast.USub: "-", ast.UAdd: "+", ast.Invert: "~",
+}
+_TRY_TYPES = (ast.Try, ast.TryStar) if hasattr(ast, "TryStar") else (ast.Try,)
+_CFG_CAP = 600
+_ANCHOR_CAP = 24
+
+
+def _stmts(body) -> list[str]:
+    out = []
+    for node in body:
+        if isinstance(node, (ast.For, ast.AsyncFor)):
+            s = "for{" + ",".join(_stmts(node.body)) + "}"
+            if node.orelse:
+                s += "else{" + ",".join(_stmts(node.orelse)) + "}"
+            out.append(s)
+        elif isinstance(node, ast.While):
+            s = "while{" + ",".join(_stmts(node.body)) + "}"
+            if node.orelse:
+                s += "else{" + ",".join(_stmts(node.orelse)) + "}"
+            out.append(s)
+        elif isinstance(node, ast.If):
+            s = "if{" + ",".join(_stmts(node.body))
+            if node.orelse:
+                s += "|" + ",".join(_stmts(node.orelse))
+            out.append(s + "}")
+        elif isinstance(node, _TRY_TYPES):
+            s = "try{" + ",".join(_stmts(node.body))
+            handler = [t for h in node.handlers for t in _stmts(h.body)]
+            if handler:
+                s += "|" + ",".join(handler)
+            if node.finalbody:
+                s += "|" + ",".join(_stmts(node.finalbody))
+            out.append(s + "}")
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            out.append("with{" + ",".join(_stmts(node.body)) + "}")
+        elif isinstance(node, ast.Match):
+            arms = [t for c in node.cases for t in _stmts(c.body)]
+            out.append("match{" + ",".join(arms) + "}")
+        elif isinstance(node, ast.Return):
+            out.append("ret")
+        elif isinstance(node, ast.Raise):
+            out.append("raise")
+        elif isinstance(node, ast.Break):
+            out.append("brk")
+        elif isinstance(node, ast.Continue):
+            out.append("cnt")
+        elif isinstance(node, ast.AugAssign):
+            out.append(_OPS.get(type(node.op), "?") + "=")
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            out.append("=")
+        elif isinstance(node, ast.Assert):
+            out.append("assert")
+        elif isinstance(node, ast.Delete):
+            out.append("del")
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            out.append("imp")
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out.append("def")
+        elif isinstance(node, ast.ClassDef):
+            out.append("class")
+        elif isinstance(node, ast.Expr):
+            v = node.value
+            if isinstance(v, ast.Constant):
+                continue  # docstring / bare literal
+            if isinstance(v, (ast.Yield, ast.YieldFrom)):
+                out.append("yield")
+            elif isinstance(v, (ast.Call, ast.Await)):
+                out.append("call")
+            else:
+                out.append("expr")
+        elif isinstance(node, (ast.Pass, ast.Global, ast.Nonlocal)):
+            continue
+        else:
+            out.append("stmt")
+    return out
+
+
+def _py_anchors(node, own_name: str) -> tuple[Counter, bool, bool]:
+    anchors: Counter = Counter()
+    rec = gen = False
+    call_funcs = {id(n.func) for n in ast.walk(node) if isinstance(n, ast.Call)}
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call):
+            f = n.func
+            name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+            if name:
+                anchors[name] += 1
+                if name == own_name:
+                    rec = True
+        elif isinstance(n, ast.Attribute) and id(n) not in call_funcs:
+            anchors[n.attr] += 1
+        elif isinstance(n, (ast.BinOp, ast.UnaryOp)):
+            anchors[_OPS.get(type(n.op), "?")] += 1
+        elif isinstance(n, ast.BoolOp):
+            anchors[_OPS.get(type(n.op), "?")] += max(1, len(n.values) - 1)
+        elif isinstance(n, ast.Compare):
+            for op in n.ops:
+                anchors[_OPS.get(type(op), "?")] += 1
+        elif isinstance(n, (ast.Yield, ast.YieldFrom)):
+            gen = True
+    return anchors, rec, gen
+
+
+def _render(cfg: str, anchors: Counter, rec: bool, gen: bool) -> str:
+    top = sorted(anchors.items(), key=lambda kv: (-kv[1], kv[0]))[:_ANCHOR_CAP]
+    an = ",".join(f"{k}:{v}" for k, v in sorted(top))
+    flags = [f for f, on in (("rec", rec), ("gen", gen)) if on]
+    s = f"cfg={cfg[:_CFG_CAP] or 'lin'} an={an}"
+    return s + (f" fl={'+'.join(flags)}" if flags else "")
+
+
+def py_algo(node, own_name: str) -> str:
+    """Skeleton of a Python function/method from its AST node."""
+    cfg = ",".join(_stmts(node.body))
+    anchors, rec, gen = _py_anchors(node, own_name)
+    return _render(cfg, anchors, rec, gen)
+
+
+# ---------------------------------------------------------------- javascript
+
+_JS_CFG_KW = {"for", "while", "do", "if", "else", "switch", "try", "catch",
+              "finally", "return", "throw", "break", "continue", "yield"}
+_JS_KW_MAP = {"return": "ret", "break": "brk", "continue": "cnt", "throw": "raise"}
+_JS_SKIP_CALL = _JS_CFG_KW | {"function", "new", "typeof", "await", "in", "of", "case"}
+_JS_CALL = re.compile(r"([A-Za-z_$][\w$]*)\s*\(")
+_JS_ATTR = re.compile(r"\.\s*([A-Za-z_$][\w$]*)(?!\s*\()")
+_JS_OP = re.compile(r"===|!==|=>|==|!=|<=|>=|&&|\|\||[+\-*/%<>!]")
+
+
+def js_algo(masked_body: str, own_name: str = "") -> str:
+    """Flat skeleton of a JS/TS unit from its masked body text."""
+    depth = 0
+    cfg = []
+    for m in re.finditer(r"[A-Za-z_$][\w$]*|[{}]", masked_body):
+        t = m.group()
+        if t == "{":
+            depth += 1
+        elif t == "}":
+            depth = max(0, depth - 1)
+        elif t in _JS_CFG_KW:
+            cfg.append(_JS_KW_MAP.get(t, t) + str(depth))
+    anchors: Counter = Counter()
+    rec = False
+    for m in _JS_CALL.finditer(masked_body):
+        name = m.group(1)
+        if name in _JS_SKIP_CALL:
+            continue
+        anchors[name] += 1
+        if own_name and name == own_name:
+            rec = True
+    for m in _JS_ATTR.finditer(masked_body):
+        anchors[m.group(1)] += 1
+    for m in _JS_OP.finditer(masked_body):
+        if m.group() != "=>":
+            anchors[m.group()] += 1
+    return _render(",".join(cfg[:64]), anchors, rec, any(c.startswith("yield") for c in cfg))
+
+
+# ---------------------------------------------------------------- comparison
+
+def _parse_algo(s: str) -> tuple[list[str], Counter]:
+    m = re.search(r"cfg=(.*?) an=", s)
+    cfg_tokens = re.findall(r"[^{}|,\s]+|[{}|]", m.group(1)) if m else []
+    counts: Counter = Counter()
+    m = re.search(r" an=([^ ]*)", s)
+    if m:
+        for pair in m.group(1).split(","):
+            k, _, v = pair.rpartition(":")
+            if k:
+                try:
+                    counts[k] = int(v)
+                except ValueError:
+                    pass
+    return cfg_tokens, counts
+
+
+def algo_similarity(a: str, b: str) -> float | None:
+    """Structure similarity in [0,1]: half control-flow shape, half anchor overlap.
+
+    None when either side has no skeleton (missing data, not disagreement).
+    """
+    if not a or not b:
+        return None
+    cfg_a, an_a = _parse_algo(a)
+    cfg_b, an_b = _parse_algo(b)
+    if not (cfg_a or an_a) or not (cfg_b or an_b):
+        return None
+    seq = SequenceMatcher(None, cfg_a, cfg_b, autojunk=False).ratio()
+    union = sum((an_a | an_b).values())
+    jac = sum((an_a & an_b).values()) / union if union else 0.0
+    return round(0.5 * seq + 0.5 * jac, 3)
+
+
+def anchor_diff(a: str, b: str, cap: int = 6) -> tuple[list[str], list[str]]:
+    """Anchors present only on each side — the discrete 'why' for near-clones."""
+    _, an_a = _parse_algo(a)
+    _, an_b = _parse_algo(b)
+    return sorted((an_a - an_b).keys())[:cap], sorted((an_b - an_a).keys())[:cap]
+
+::endfile
+
+::file pyproject.toml
+::lang toml
+::sha 7a1cf561abe7
+::lines 17
+::content 17
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cm-compiler"
+version = "0.2.0"
+description = "Compile a codebase into a context management artifact (PROJECT.cm) with information-theoretic redundancy checks."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[project.scripts]
+cm = "cm.cli:main"
+
+[tool.setuptools]
+packages = ["cm"]
+
+::endfile
+
+::file tests/__init__.py
+::lang python
+::sha e3b0c44298fc
+::lines 1
+::content 1
+
+::endfile
+
+::file tests/test_cmfile.py
+::lang python
+::sha 9df9d9d60f04
+::lines 79
+::imports cm.cmfile, cm.ignore, cm.scan, pathlib, tempfile, unittest
+::unit class TestCmFileRoundTrip @26-74 #05f64fba
+::sig class TestCmFileRoundTrip
+::unit method TestCmFileRoundTrip.setUp @27-35 #3174d6d8
+::sig setUp(self)
+::algo cfg==,=,call,call,call,call,call,= an=/:6,Path:1,TemporaryDirectory:1,mkdir:1,name:1,result:1,scan_tree:1,tmp:2,write_text:4
+::unit method TestCmFileRoundTrip.tearDown @37-38 #566b60f1
+::sig tearDown(self)
+::algo cfg=call an=cleanup:1,tmp:1
+::unit method TestCmFileRoundTrip.test_scan_respects_cmignore @40-45 #0d4734c3
+::sig test_scan_respects_cmignore(self)
+::algo cfg==,call,call,call,call an=assertIn:3,assertNotIn:1,path:1,records:1,result:1
+::unit method TestCmFileRoundTrip.test_round_trip @47-63 #dcd2cdbf
+::sig test_round_trip(self)
+::algo cfg==,=,=,call,call,=,call,for{=,call,call,call,call,call} an=algo:2,assertEqual:8,content:1,emit:1,end:2,fp:2,len:2,parse:1,path:4,records:5,result:5,set:1,sha:2,start:2,str:1,text:1,units:6
+::unit method TestCmFileRoundTrip.test_content_with_directive_lookalike_survives @65-69 #2bdebc55
+::sig test_content_with_directive_lookalike_survives(self)
+::algo cfg==,=,=,call an===:1,assertIn:1,content:1,emit:1,next:1,parse:1,path:1,records:1,result:1
+::unit method TestCmFileRoundTrip.test_no_content_mode @71-74 #6b6a78b2
+::sig test_no_content_mode(self)
+::algo cfg==,=,call an=all:1,assertTrue:1,content:1,emit:1,is:1,parse:1,records:1,result:1
+::content 79
+import tempfile
+import unittest
+from pathlib import Path
+
+from cm.cmfile import emit, parse
+from cm.ignore import IgnoreRules
+from cm.scan import scan_tree
+
+PY = '''"""Fixture module."""
+
+
+def alpha(x):
+    """Double it."""
+    return x * 2
+
+
+def beta(items):
+    """Contains ::content sentinel text to stress the parser."""
+    out = []
+    for it in items:
+        out.append(str(it) + "::content 999")
+    return out
+'''
+
+
+class TestCmFileRoundTrip(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        (root / "pkg").mkdir()
+        (root / "pkg" / "mod.py").write_text(PY, encoding="utf-8")
+        (root / "notes.md").write_text("# Title\nBody\n", encoding="utf-8")
+        (root / "ignored.log").write_text("x", encoding="utf-8")
+        (root / ".cmignore").write_text("*.log\n", encoding="utf-8")
+        self.result = scan_tree(root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_scan_respects_cmignore(self):
+        paths = [r.path for r in self.result.records]
+        self.assertIn("pkg/mod.py", paths)
+        self.assertIn("notes.md", paths)
+        self.assertIn(".cmignore", paths)
+        self.assertNotIn("ignored.log", paths)
+
+    def test_round_trip(self):
+        meta = {"project": "fixture", "root": ".",
+                "stats": {"files": len(self.result.records)}}
+        text = emit(meta, self.result.records)
+        meta2, files = parse(text)
+        self.assertEqual(meta2["project"], "fixture")
+        self.assertEqual(meta2["stats"]["files"], str(len(self.result.records)))
+        by_path = {f.path: f for f in files}
+        self.assertEqual(set(by_path), {r.path for r in self.result.records})
+        for rec in self.result.records:
+            f = by_path[rec.path]
+            self.assertEqual(f.sha, rec.sha)
+            self.assertEqual(f.content, rec.text, f"content mismatch for {rec.path}")
+            self.assertEqual([u.fp for u in f.units], [u.fp for u in rec.units])
+            self.assertEqual([u.algo for u in f.units], [u.algo for u in rec.units])
+            self.assertEqual([(u.start, u.end) for u in f.units],
+                             [(u.start, u.end) for u in rec.units])
+
+    def test_content_with_directive_lookalike_survives(self):
+        text = emit({"project": "x"}, self.result.records)
+        _, files = parse(text)
+        mod = next(f for f in files if f.path == "pkg/mod.py")
+        self.assertIn('"::content 999"', mod.content)
+
+    def test_no_content_mode(self):
+        text = emit({"project": "x"}, self.result.records, include_content=False)
+        _, files = parse(text)
+        self.assertTrue(all(f.content is None for f in files))
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+::endfile
+
+::file tests/test_extract.py
+::lang python
+::sha 6686f22caef7
+::lines 138
+::imports cm.extract, cm.model, cm.normalize, unittest
+::unit function make_record @68-72 #dfe308af
+::sig make_record(path, lang, text)
+::algo cfg==,call,ret an=*:1,FileRecord:1,extract_units:1,len:2,split:1
+::unit class TestPythonExtract @75-99 #66652578
+::sig class TestPythonExtract
+::unit method TestPythonExtract.setUp @76-77 #778c41ab
+::sig setUp(self)
+::algo cfg== an=make_record:1,rec:1
+::unit method TestPythonExtract.test_units_found @79-81 #bd2f99b1
+::sig test_units_found(self)
+::algo cfg==,call an=assertEqual:1,qualname:1,rec:1,units:1
+::unit method TestPythonExtract.test_docs_and_module_doc @83-87 #63e224d2
+::sig test_docs_and_module_doc(self)
+::algo cfg=call,=,call,call an=assertEqual:3,doc:2,kind:1,qualname:1,rec:2,units:1
+::unit method TestPythonExtract.test_decorated_span_starts_at_decorator @89-91 #efa67832
+::sig test_decorated_span_starts_at_decorator(self)
+::algo cfg==,call an=-:1,==:1,assertTrue:1,next:1,qualname:1,rec:2,split:1,start:1,startswith:1,strip:1,text:1,units:1
+::unit method TestPythonExtract.test_imports @93-95 #8a5cab9d
+::sig test_imports(self)
+::algo cfg=call,call an=assertIn:2,imports:2,rec:2
+::unit method TestPythonExtract.test_class_not_scoreable @97-99 #e3e6ef41
+::sig test_class_not_scoreable(self)
+::algo cfg==,call an===:1,assertFalse:1,next:1,qualname:1,rec:1,scoreable:1,units:1
+::unit class TestJsExtract @102-121 #d5486d1f
+::sig class TestJsExtract
+::unit method TestJsExtract.setUp @103-104 #33720a73
+::sig setUp(self)
+::algo cfg== an=make_record:1,rec:1
+::unit method TestJsExtract.test_units_found @106-108 #bd2f99b1
+::sig test_units_found(self)
+::algo cfg==,call an=assertEqual:1,qualname:1,rec:1,units:1
+::unit method TestJsExtract.test_brace_in_string_does_not_break_span @110-113 #ef7ccffc
+::sig test_brace_in_string_does_not_break_span(self)
+::algo cfg==,call,call an===:1,assertIn:1,assertTrue:1,body:2,endswith:1,next:1,qualname:1,rec:1,rstrip:1,units:1
+::unit method TestJsExtract.test_doc_comment_above @115-117 #fe705a9d
+::sig test_doc_comment_above(self)
+::algo cfg==,call an===:1,assertIn:1,doc:1,next:1,qualname:1,rec:1,units:1
+::unit method TestJsExtract.test_trivial_arrow_marked @119-121 #72b3ca6a
+::sig test_trivial_arrow_marked(self)
+::algo cfg==,call an===:1,assertTrue:1,next:1,qualname:1,rec:1,trivial:1,units:1
+::unit class TestNormalize @124-133 #401755b1
+::sig class TestNormalize
+::unit method TestNormalize.test_alpha_rename_makes_renamed_clones_identical @125-128 #f33e28ec
+::sig test_alpha_rename_makes_renamed_clones_identical(self)
+::algo cfg==,=,call an=assertEqual:1,norm_source:2
+::unit method TestNormalize.test_keywords_survive @130-133 #8ce97b9c
+::sig test_keywords_survive(self)
+::algo cfg==,for{call} an=assertIn:1,norm_source:1,split:1
+::content 138
+import unittest
+
+from cm.model import FileRecord
+from cm.extract import extract_units
+from cm.normalize import norm_source
+
+PY_SRC = '''"""Module doc first line."""
+import os
+from pathlib import Path
+
+
+def process(items, limit=10):
+    """Filter items below the limit."""
+    kept = []
+    for item in items:
+        if item.weight < limit and item.active:
+            kept.append(item.name.strip().lower())
+    return sorted(set(kept))
+
+
+class Foo:
+    """A class."""
+
+    @property
+    def bar(self):
+        """Bar doc."""
+        total = 0
+        for chunk in self.chunks:
+            total += len(chunk) * self.scale
+        return total
+
+
+async def fetch_all(urls):
+    results = {}
+    for url in urls:
+        results[url] = await grab(url)
+    return results
+'''
+
+JS_SRC = '''import { thing } from "./thing";
+
+// Adds up weighted values from records.
+export function sumWeighted(records, scale) {
+  let total = 0;
+  for (const rec of records) {
+    total += rec.value * scale; // note: "{" inside a string next
+    if (rec.tag === "}{weird") total -= 1;
+  }
+  return total;
+}
+
+const shortHelper = (x) => x + 1;
+
+export const groupByKey = (rows, key) => {
+  const out = {};
+  for (const row of rows) {
+    (out[row[key]] ||= []).push(row);
+  }
+  return out;
+};
+
+class Widget {
+  constructor(name) { this.name = name; }
+}
+'''
+
+
+def make_record(path, lang, text):
+    rec = FileRecord(path=path, abspath=path, lang=lang, text=text,
+                     sha="x" * 12, size=len(text), lines=len(text.split("\n")))
+    extract_units(rec)
+    return rec
+
+
+class TestPythonExtract(unittest.TestCase):
+    def setUp(self):
+        self.rec = make_record("mod.py", "python", PY_SRC)
+
+    def test_units_found(self):
+        quals = {u.qualname for u in self.rec.units}
+        self.assertEqual(quals, {"process", "Foo", "Foo.bar", "fetch_all"})
+
+    def test_docs_and_module_doc(self):
+        self.assertEqual(self.rec.doc, "Module doc first line.")
+        by_name = {u.qualname: u for u in self.rec.units}
+        self.assertEqual(by_name["process"].doc, "Filter items below the limit.")
+        self.assertEqual(by_name["Foo.bar"].kind, "method")
+
+    def test_decorated_span_starts_at_decorator(self):
+        bar = next(u for u in self.rec.units if u.qualname == "Foo.bar")
+        self.assertTrue(self.rec.text.split("\n")[bar.start - 1].strip().startswith("@"))
+
+    def test_imports(self):
+        self.assertIn("os", self.rec.imports)
+        self.assertIn("pathlib", self.rec.imports)
+
+    def test_class_not_scoreable(self):
+        foo = next(u for u in self.rec.units if u.qualname == "Foo")
+        self.assertFalse(foo.scoreable)
+
+
+class TestJsExtract(unittest.TestCase):
+    def setUp(self):
+        self.rec = make_record("mod.js", "javascript", JS_SRC)
+
+    def test_units_found(self):
+        names = {u.qualname for u in self.rec.units}
+        self.assertEqual(names, {"sumWeighted", "shortHelper", "groupByKey", "Widget"})
+
+    def test_brace_in_string_does_not_break_span(self):
+        sw = next(u for u in self.rec.units if u.qualname == "sumWeighted")
+        self.assertTrue(sw.body.rstrip().endswith("}"))
+        self.assertIn("return total;", sw.body)
+
+    def test_doc_comment_above(self):
+        sw = next(u for u in self.rec.units if u.qualname == "sumWeighted")
+        self.assertIn("weighted values", sw.doc)
+
+    def test_trivial_arrow_marked(self):
+        sh = next(u for u in self.rec.units if u.qualname == "shortHelper")
+        self.assertTrue(sh.trivial)
+
+
+class TestNormalize(unittest.TestCase):
+    def test_alpha_rename_makes_renamed_clones_identical(self):
+        a = "def f(alpha, beta):\n    # comment\n    return alpha * beta + 'hello'\n"
+        b = "def g(gamma, delta):\n    # other words entirely\n    return gamma * delta + 'world'\n"
+        self.assertEqual(norm_source(a, "python"), norm_source(b, "python"))
+
+    def test_keywords_survive(self):
+        n = norm_source("for x in y: return x", "python")
+        for kw in ("for", "in", "return"):
+            self.assertIn(kw, n.split())
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+::endfile
+
+::file tests/test_ignore.py
+::lang python
+::sha ea7776a06fdb
+::lines 51
+::imports cm.ignore, unittest
+::unit class TestIgnoreRules @6-46 #4b390bb1
+::sig class TestIgnoreRules
+::unit method TestIgnoreRules.setUp @7-14 #837a9a7d
+::sig setUp(self)
+::algo cfg== an=IgnoreRules:1,rules:1
+::unit method TestIgnoreRules.test_basename_glob_any_depth @16-18 #e8e8f718
+::sig test_basename_glob_any_depth(self)
+::algo cfg=call,call an=assertTrue:2,ignored:2,rules:2
+::unit method TestIgnoreRules.test_negation_last_match_wins @20-22 #280c0d54
+::sig test_negation_last_match_wins(self)
+::algo cfg=call,call an=assertFalse:2,ignored:2,rules:2
+::unit method TestIgnoreRules.test_dir_only_and_containment @24-27 #dfe02f72
+::sig test_dir_only_and_containment(self)
+::algo cfg=call,call,call an=assertFalse:1,assertTrue:2,ignored:3,rules:3
+::unit method TestIgnoreRules.test_anchored @29-31 #5b0d329a
+::sig test_anchored(self)
+::algo cfg=call,call an=assertFalse:1,assertTrue:1,ignored:2,rules:2
+::unit method TestIgnoreRules.test_double_star @33-36 #90b16d59
+::sig test_double_star(self)
+::algo cfg=call,call,call an=assertFalse:1,assertTrue:2,ignored:3,rules:3
+::unit method TestIgnoreRules.test_defaults @38-46 #add54bfb
+::sig test_defaults(self)
+::algo cfg==,call,call,call,call,call,call,call an=IgnoreRules:1,assertFalse:1,assertTrue:6,ignored:7
+::content 51
+import unittest
+
+from cm.ignore import IgnoreRules
+
+
+class TestIgnoreRules(unittest.TestCase):
+    def setUp(self):
+        self.rules = IgnoreRules([
+            "*.log",
+            "build/",
+            "!keep.log",
+            "/root_only.txt",
+            "docs/**/*.tmp",
+        ], use_defaults=False)
+
+    def test_basename_glob_any_depth(self):
+        self.assertTrue(self.rules.ignored("a.log", False))
+        self.assertTrue(self.rules.ignored("sub/dir/b.log", False))
+
+    def test_negation_last_match_wins(self):
+        self.assertFalse(self.rules.ignored("keep.log", False))
+        self.assertFalse(self.rules.ignored("sub/keep.log", False))
+
+    def test_dir_only_and_containment(self):
+        self.assertTrue(self.rules.ignored("build", True))
+        self.assertTrue(self.rules.ignored("build/x/y.js", False))
+        self.assertFalse(self.rules.ignored("build", False))  # a *file* named build
+
+    def test_anchored(self):
+        self.assertTrue(self.rules.ignored("root_only.txt", False))
+        self.assertFalse(self.rules.ignored("sub/root_only.txt", False))
+
+    def test_double_star(self):
+        self.assertTrue(self.rules.ignored("docs/a/b/c.tmp", False))
+        self.assertTrue(self.rules.ignored("docs/direct.tmp", False))
+        self.assertFalse(self.rules.ignored("other/a.tmp", False))
+
+    def test_defaults(self):
+        d = IgnoreRules([])
+        self.assertTrue(d.ignored(".git", True))
+        self.assertTrue(d.ignored("PROJECT.cm", False))
+        self.assertTrue(d.ignored("sub/OTHER.cm", False))
+        self.assertTrue(d.ignored("node_modules/pkg/index.js", False))
+        self.assertTrue(d.ignored("cm_compiler.egg-info/PKG-INFO", False))
+        self.assertTrue(d.ignored(".cm/cache.json.gz", False))
+        self.assertFalse(d.ignored("cm/cli.py", False))
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+::endfile
+
+::file tests/test_incremental.py
+::lang python
+::sha ddd14013ee28
+::lines 140
+::imports cm, cm.cache, cm.scan, contextlib, io, pathlib, tempfile, tests.test_redundancy, unittest
+::unit function run_cli @13-15 #e1ddd3d8
+::sig run_cli(*argv) -> int
+::algo cfg=with{ret} an=StringIO:2,list:1,main:1,redirect_stderr:1,redirect_stdout:1
+::unit class TestIncrementalScan @18-53 #852d9468
+::sig class TestIncrementalScan
+::unit method TestIncrementalScan.setUp @19-23 #018385c4
+::sig setUp(self)
+::algo cfg==,=,call,call an=/:2,Path:1,TemporaryDirectory:1,name:1,root:3,tmp:2,write_text:2
+::unit method TestIncrementalScan.tearDown @25-26 #566b60f1
+::sig tearDown(self)
+::algo cfg=call an=cleanup:1,tmp:1
+::unit method TestIncrementalScan.test_second_scan_is_all_cache_hits @28-34 #12197207
+::sig test_second_scan_is_all_cache_hits(self)
+::algo cfg==,call,call,=,call,call an=assertEqual:3,cache_hits:1,changed:2,len:1,load_cache:1,root:4,save_cache:1,scan_tree:2
+::unit method TestIncrementalScan.test_only_modified_file_reanalyzed @36-42 #7b888ee5
+::sig test_only_modified_file_reanalyzed(self)
+::algo cfg==,call,call,=,call,call an=+:1,/:1,assertEqual:2,cache_hits:1,changed:1,load_cache:1,root:5,save_cache:1,scan_tree:2,write_text:1
+::unit method TestIncrementalScan.test_cached_records_match_fresh_analysis @44-53 #a59ad496
+::sig test_cached_records_match_fresh_analysis(self)
+::algo cfg==,call,=,for{call,call,call,call,call} an=algo:2,assertEqual:5,body:2,fp:2,load_cache:1,norm:2,records:2,root:4,save_cache:1,scan_tree:2,sha:2,units:8,zip:1
+::unit class TestGateFlow @56-116 #2010a97b
+::sig class TestGateFlow
+::unit method TestGateFlow.setUp @57-61 #018385c4
+::sig setUp(self)
+::algo cfg==,=,call,call an=/:2,Path:1,TemporaryDirectory:1,name:1,root:3,tmp:2,write_text:2
+::unit method TestGateFlow.tearDown @63-64 #566b60f1
+::sig tearDown(self)
+::algo cfg=call an=cleanup:1,tmp:1
+::unit method TestGateFlow.test_first_gate_creates_baseline @66-69 #69e8424b
+::sig test_first_gate_creates_baseline(self)
+::algo cfg=call,call,call an=/:1,assertEqual:1,assertTrue:2,is_file:1,load_cache:1,root:3,run_cli:1,str:1
+::unit method TestGateFlow.test_duplicate_write_blocks_and_baseline_frozen @71-76 #19fdc6b3
+::sig test_duplicate_write_blocks_and_baseline_frozen(self)
+::algo cfg=call,call,call,call,call an=/:1,assertEqual:2,assertNotIn:1,load_cache:1,root:5,run_cli:3,str:3,write_text:1
+::unit method TestGateFlow.test_accept_unblocks_and_commits @78-85 #871caf45
+::sig test_accept_unblocks_and_commits(self)
+::algo cfg=call,call,call,=,call,call,call an=/:2,assertEqual:2,assertIn:1,fp:1,load_cache:1,load_file:1,root:7,run_cli:4,str:4,units:1,write_text:1
+::unit method TestGateFlow.test_novel_write_passes_and_commits @87-105 #fc8ae25f
+::sig test_novel_write_passes_and_commits(self)
+::algo cfg=call,call,call,call,call,call an=/:2,assertEqual:2,assertIn:1,load_cache:1,replace:2,root:6,run_cli:3,str:3,write_text:2
+::unit method TestGateFlow.test_comment_only_edit_passes_quickly @107-110 #11825479
+::sig test_comment_only_edit_passes_quickly(self)
+::algo cfg=call,call,call an=+:1,/:1,assertEqual:1,root:3,run_cli:2,str:2,write_text:1
+::unit method TestGateFlow.test_status_reports_staleness @112-116 #78e051e1
+::sig test_status_reports_staleness(self)
+::algo cfg=call,call,call,call an=+:1,/:1,assertEqual:2,root:4,run_cli:3,str:3,write_text:1
+::unit class TestInit @119-135 #3a6e6104
+::sig class TestInit
+::unit method TestInit.test_init_installs_everything @120-135 #2daef345
+::sig test_init_installs_everything(self)
+::algo cfg=with{=,call,call,call,call,call,call,=,call,call,call,=,call} an=/:8,Path:1,TemporaryDirectory:1,assertEqual:3,assertIn:3,assertTrue:3,count:1,is_file:3,read_text:3,run_cli:2,str:2,write_text:1
+::content 140
+import contextlib
+import io
+import tempfile
+import unittest
+from pathlib import Path
+
+from cm import cli
+from cm.cache import load_cache, save_cache
+from cm.scan import load_file, scan_tree
+from tests.test_redundancy import ORIGINAL, PURE_RENAME, UNRELATED
+
+
+def run_cli(*argv) -> int:
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return cli.main(list(argv))
+
+
+class TestIncrementalScan(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "a.py").write_text(ORIGINAL, encoding="utf-8")
+        (self.root / "c.py").write_text(UNRELATED, encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_second_scan_is_all_cache_hits(self):
+        first = scan_tree(self.root)
+        self.assertEqual(len(first.changed), 2)
+        save_cache(self.root, first)
+        second = scan_tree(self.root, cache=load_cache(self.root))
+        self.assertEqual(second.cache_hits, 2)
+        self.assertEqual(second.changed, [])
+
+    def test_only_modified_file_reanalyzed(self):
+        first = scan_tree(self.root)
+        save_cache(self.root, first)
+        (self.root / "c.py").write_text(UNRELATED + "\nEXTRA = 1\n", encoding="utf-8")
+        second = scan_tree(self.root, cache=load_cache(self.root))
+        self.assertEqual(second.changed, ["c.py"])
+        self.assertEqual(second.cache_hits, 1)
+
+    def test_cached_records_match_fresh_analysis(self):
+        first = scan_tree(self.root)
+        save_cache(self.root, first)
+        second = scan_tree(self.root, cache=load_cache(self.root))
+        for fresh, cached in zip(first.records, second.records):
+            self.assertEqual(fresh.sha, cached.sha)
+            self.assertEqual([u.fp for u in fresh.units], [u.fp for u in cached.units])
+            self.assertEqual([u.norm for u in fresh.units], [u.norm for u in cached.units])
+            self.assertEqual([u.body for u in fresh.units], [u.body for u in cached.units])
+            self.assertEqual([u.algo for u in fresh.units], [u.algo for u in cached.units])
+
+
+class TestGateFlow(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "a.py").write_text(ORIGINAL, encoding="utf-8")
+        (self.root / "c.py").write_text(UNRELATED, encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_first_gate_creates_baseline(self):
+        self.assertEqual(run_cli("gate", str(self.root)), 0)
+        self.assertTrue((self.root / "PROJECT.cm").is_file())
+        self.assertTrue(load_cache(self.root))
+
+    def test_duplicate_write_blocks_and_baseline_frozen(self):
+        run_cli("gate", str(self.root))
+        (self.root / "b.py").write_text(PURE_RENAME, encoding="utf-8")
+        self.assertEqual(run_cli("gate", str(self.root)), 1)
+        self.assertEqual(run_cli("gate", str(self.root), "--hook"), 2)
+        self.assertNotIn("b.py", load_cache(self.root))  # baseline not advanced
+
+    def test_accept_unblocks_and_commits(self):
+        run_cli("gate", str(self.root))
+        (self.root / "b.py").write_text(PURE_RENAME, encoding="utf-8")
+        run_cli("gate", str(self.root))
+        clone = load_file(self.root / "b.py", "b.py").units[0]
+        self.assertEqual(run_cli("accept", clone.fp, "--root", str(self.root)), 0)
+        self.assertEqual(run_cli("gate", str(self.root)), 0)
+        self.assertIn("b.py", load_cache(self.root))
+
+    def test_novel_write_passes_and_commits(self):
+        run_cli("gate", str(self.root))
+        (self.root / "d.py").write_text(
+            UNRELATED.replace("parse_header_line", "parse_footer_block")
+                     .replace("header", "footer"), encoding="utf-8")
+        # near-identical to c.py -> should block, proving corpus includes tree state
+        self.assertEqual(run_cli("gate", str(self.root)), 1)
+        (self.root / "d.py").write_text(
+            "def totally_new(matrix):\n"
+            "    best_row = None\n"
+            "    best_score = float('-inf')\n"
+            "    for row in matrix:\n"
+            "        score = min(row) * 3 - max(row)\n"
+            "        if score > best_score:\n"
+            "            best_score = score\n"
+            "            best_row = row\n"
+            "    return best_row\n", encoding="utf-8")
+        self.assertEqual(run_cli("gate", str(self.root)), 0)
+        self.assertIn("d.py", load_cache(self.root))
+
+    def test_comment_only_edit_passes_quickly(self):
+        run_cli("gate", str(self.root))
+        (self.root / "a.py").write_text("# leading comment\n" + ORIGINAL, encoding="utf-8")
+        self.assertEqual(run_cli("gate", str(self.root)), 0)
+
+    def test_status_reports_staleness(self):
+        run_cli("gate", str(self.root))
+        self.assertEqual(run_cli("status", str(self.root)), 0)
+        (self.root / "c.py").write_text(UNRELATED + "\nX = 2\n", encoding="utf-8")
+        self.assertEqual(run_cli("status", str(self.root)), 1)
+
+
+class TestInit(unittest.TestCase):
+    def test_init_installs_everything(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.py").write_text(ORIGINAL, encoding="utf-8")
+            self.assertEqual(run_cli("init", str(root), "--hooks"), 0)
+            self.assertTrue((root / ".cmignore").is_file())
+            self.assertTrue((root / "PROJECT.cm").is_file())
+            self.assertTrue((root / "CLAUDE.md").is_file())
+            self.assertIn("cm gate", (root / "CLAUDE.md").read_text(encoding="utf-8"))
+            settings = (root / ".claude" / "settings.json").read_text(encoding="utf-8")
+            self.assertIn("cm gate --hook", settings)
+            self.assertIn("PostToolUse", settings)
+            # idempotent
+            self.assertEqual(run_cli("init", str(root), "--hooks"), 0)
+            claude_md = (root / "CLAUDE.md").read_text(encoding="utf-8")
+            self.assertEqual(claude_md.count("cm:protocol:begin"), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+::endfile
+
+::file tests/test_plugin_hook.py
+::lang python
+::sha b9e210fb0483
+::lines 62
+::imports contextlib, json, pathlib, subprocess, sys, tempfile, tests.test_incremental, tests.test_redundancy, unittest
+::unit function run_hook @15-19 #36bdff5a
+::sig run_hook(payload, cwd=None) -> subprocess.CompletedProcess
+::algo cfg==,ret an=CompletedProcess:1,dumps:1,executable:1,isinstance:1,run:1,str:1
+::unit function repo @22-29 #9dc6fc49
+::sig repo(baseline: bool)
+::algo cfg=with{=,call,if{call},yield} an=/:1,Path:1,TemporaryDirectory:1,contextmanager:1,run_cli:1,write_text:1 fl=gen
+::unit class TestGateHook @32-57 #edb80031
+::sig class TestGateHook
+::unit method TestGateHook.test_uninitialized_repo_is_a_silent_noop @33-36 #66aa0171
+::sig test_uninitialized_repo_is_a_silent_noop(self)
+::algo cfg=with{=},call an=assertEqual:1,repo:1,returncode:1,run_hook:1,stderr:1,str:1
+::unit method TestGateHook.test_initialized_repo_blocks_duplicate_via_file_path @38-46 #d6528dff
+::sig test_initialized_repo_blocks_duplicate_via_file_path(self)
+::algo cfg=with{call,call,=},call,call,call an=/:5,assertEqual:1,assertIn:2,mkdir:1,repo:1,returncode:1,run_hook:1,stderr:2,str:1,write_text:1
+::unit method TestGateHook.test_clean_write_passes @48-52 #5cd961d2
+::sig test_clean_write_passes(self)
+::algo cfg=with{call,=},call an=/:2,assertEqual:1,repo:1,returncode:1,run_hook:1,str:1,write_text:1
+::unit method TestGateHook.test_malformed_stdin_never_blocks @54-57 #a2694abd
+::sig test_malformed_stdin_never_blocks(self)
+::algo cfg=with{=},call an=TemporaryDirectory:1,assertEqual:1,returncode:1,run_hook:1
+::content 62
+import contextlib
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from tests.test_incremental import run_cli
+from tests.test_redundancy import ORIGINAL, PURE_RENAME
+
+HOOK = Path(__file__).resolve().parent.parent / "cm-plugin" / "scripts" / "gate_hook.py"
+
+
+def run_hook(payload, cwd=None) -> subprocess.CompletedProcess:
+    stdin = payload if isinstance(payload, str) else json.dumps(payload)
+    return subprocess.run([sys.executable, str(HOOK)], input=stdin,
+                          capture_output=True, text=True, timeout=120,
+                          encoding="utf-8", errors="replace", cwd=cwd)
+
+
+@contextlib.contextmanager
+def repo(baseline: bool):
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "a.py").write_text(ORIGINAL, encoding="utf-8")
+        if baseline:
+            run_cli("gate", tmp)
+        yield root
+
+
+class TestGateHook(unittest.TestCase):
+    def test_uninitialized_repo_is_a_silent_noop(self):
+        with repo(baseline=False) as root:
+            proc = run_hook({"cwd": str(root)})
+        self.assertEqual((proc.returncode, proc.stderr), (0, ""))
+
+    def test_initialized_repo_blocks_duplicate_via_file_path(self):
+        with repo(baseline=True) as root:
+            (root / "sub").mkdir()
+            (root / "sub" / "b.py").write_text(PURE_RENAME, encoding="utf-8")
+            # root discovery must walk up from the edited file's directory
+            proc = run_hook({"tool_input": {"file_path": str(root / "sub" / "b.py")}})
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("BLOCKED", proc.stderr)
+        self.assertIn("aggregate_metrics", proc.stderr)
+
+    def test_clean_write_passes(self):
+        with repo(baseline=True) as root:
+            (root / "notes.md").write_text("# notes\n", encoding="utf-8")
+            proc = run_hook({"tool_input": {"file_path": str(root / "notes.md")}})
+        self.assertEqual(proc.returncode, 0)
+
+    def test_malformed_stdin_never_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run_hook("not json", cwd=tmp)
+        self.assertEqual(proc.returncode, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+::endfile
+
+::file tests/test_redundancy.py
+::lang python
+::sha 9f4cb79eda1b
+::lines 161
+::imports cm.redundancy, tests.test_extract, unittest
+::unit function units_of @81-82 #72dd96a1
+::sig units_of(path, src)
+::algo cfg=ret an=!=:1,kind:1,make_record:1,units:1
+::unit class TestPairRedundancy @85-115 #cd744672
+::sig class TestPairRedundancy
+::unit method TestPairRedundancy.test_pure_rename_scores_high @86-90 #e346933c
+::sig test_pure_rename_scores_high(self)
+::algo cfg==,=,=,call an=assertGreaterEqual:1,norm:2,pair_redundancy:1,units_of:2
+::unit method TestPairRedundancy.test_unrelated_scores_low @92-96 #0d6c1b0a
+::sig test_unrelated_scores_low(self)
+::algo cfg==,=,=,call an=assertLessEqual:1,norm:2,pair_redundancy:1,units_of:2
+::unit method TestPairRedundancy.test_pure_rename_same_fingerprint @98-101 #3ad02cf8
+::sig test_pure_rename_same_fingerprint(self)
+::algo cfg==,=,call an=assertEqual:1,fp:2,units_of:2
+::unit method TestPairRedundancy.test_interface_variant_different_fingerprint @103-107 #1d1bd7c3
+::sig test_interface_variant_different_fingerprint(self)
+::algo cfg==,=,call an=assertNotEqual:1,fp:2,units_of:2
+::unit method TestPairRedundancy.test_fickle_pair_distinguished @109-115 #f7e3fab8
+::sig test_fickle_pair_distinguished(self)
+::algo cfg==,=,call,call an=assertLess:1,assertNotEqual:1,fp:2,norm:2,pair_redundancy:1,units_of:2
+::unit class TestScoreTargets @118-156 #8bbd0fc7
+::sig class TestScoreTargets
+::unit method TestScoreTargets.test_pure_rename_flagged_as_exact_duplicate @119-126 #9afa4554
+::sig test_pure_rename_flagged_as_exact_duplicate(self)
+::algo cfg==,=,call,call,=,call,call an=+:1,assertEqual:2,assertGreaterEqual:1,assertTrue:1,score_targets:1,units_of:3,verdict:1
+::unit method TestScoreTargets.test_interface_variant_flagged_with_anchor_evidence @128-137 #554db7d0
+::sig test_interface_variant_flagged_with_anchor_evidence(self)
+::algo cfg==,=,=,call,call,call,call,call,call an=+:1,assertEqual:1,assertFalse:1,assertGreaterEqual:1,assertIn:2,assertNotEqual:1,score_targets:1,units_of:3,verdict:1
+::unit method TestScoreTargets.test_novel_function_stays_novel @139-142 #f9ea1a54
+::sig test_novel_function_stays_novel(self)
+::algo cfg==,=,call an=assertEqual:1,score_targets:1,units_of:2,verdict:1
+::unit method TestScoreTargets.test_marginal_bits_smaller_for_clone @144-148 #350c74ac
+::sig test_marginal_bits_smaller_for_clone(self)
+::algo cfg==,=,call an=*:1,+:1,assertLess:1,score_targets:1,units_of:3
+::unit method TestScoreTargets.test_structure_gate_blocks_uncorroborated_duplicate @150-156 #d624af3e
+::sig test_structure_gate_blocks_uncorroborated_duplicate(self)
+::algo cfg==,call,=,call,=,call an=assertEqual:3,verdict:3
+::content 161
+import unittest
+
+from tests.test_extract import make_record
+from cm.redundancy import pair_redundancy, score_targets, verdict
+
+ORIGINAL = '''def aggregate_metrics(samples, window):
+    """Aggregate raw samples into windowed metric rows."""
+    rows = []
+    bucket = []
+    for sample in samples:
+        bucket.append(sample.value * sample.weight)
+        if len(bucket) >= window:
+            total = sum(bucket)
+            rows.append({"count": len(bucket), "total": total, "mean": total / len(bucket)})
+            bucket = []
+    if bucket:
+        total = sum(bucket)
+        rows.append({"count": len(bucket), "total": total, "mean": total / len(bucket)})
+    return rows
+'''
+
+# Only *bound* names renamed (function, params, locals); same attributes,
+# operators, and callees. Structurally the identical function.
+PURE_RENAME = '''def fold_readings(points, span):
+    """Collapse sensor readings into fixed-size summary chunks."""
+    chunks = []
+    acc = []
+    for point in points:
+        acc.append(point.value * point.weight)
+        if len(acc) >= span:
+            subtotal = sum(acc)
+            chunks.append({"count": len(acc), "total": subtotal, "mean": subtotal / len(acc)})
+            acc = []
+    if acc:
+        subtotal = sum(acc)
+        chunks.append({"count": len(acc), "total": subtotal, "mean": subtotal / len(acc)})
+    return chunks
+'''
+
+# Same algorithm applied to a different data interface: attribute anchors
+# differ (.amount/.scale vs .value/.weight). Near-duplicate, but not exact.
+INTERFACE_VARIANT = '''def fold_readings(points, span):
+    """Collapse sensor readings into fixed-size summary chunks."""
+    chunks = []
+    acc = []
+    for point in points:
+        acc.append(point.amount * point.scale)
+        if len(acc) >= span:
+            subtotal = sum(acc)
+            chunks.append({"n": len(acc), "sum": subtotal, "avg": subtotal / len(acc)})
+            acc = []
+    if acc:
+        subtotal = sum(acc)
+        chunks.append({"n": len(acc), "sum": subtotal, "avg": subtotal / len(acc)})
+    return chunks
+'''
+
+UNRELATED = '''def parse_header_line(line):
+    """Split an RFC-style header line into key and value."""
+    if ":" not in line:
+        raise ValueError("malformed header: " + line)
+    key, _, value = line.partition(":")
+    key = key.strip().lower()
+    if not key or any(ch.isspace() for ch in key):
+        raise ValueError("bad header key: " + key)
+    return key, value.strip()
+'''
+
+# The fickle pair: identical shape, one flipped anchor. Same information
+# almost everywhere — NOT the same function.
+FICKLE_GE = '''def check_ratio_upper(self):
+    measured = compute_ratio(self.sample_a, self.sample_b)
+    self.assertGreaterEqual(measured, 0.55, "ratio unexpectedly low for this corpus")
+'''
+FICKLE_LE = '''def check_ratio_lower(self):
+    observed = compute_ratio(self.sample_a, self.sample_b)
+    self.assertLessEqual(observed, 0.55, "ratio unexpectedly high for this corpus")
+'''
+
+
+def units_of(path, src):
+    return [u for u in make_record(path, "python", src).units if u.kind != "class"]
+
+
+class TestPairRedundancy(unittest.TestCase):
+    def test_pure_rename_scores_high(self):
+        [orig] = units_of("a.py", ORIGINAL)
+        [clone] = units_of("b.py", PURE_RENAME)
+        score = pair_redundancy(clone.norm, orig.norm)
+        self.assertGreaterEqual(score, 0.55, f"pure-rename score too low: {score:.3f}")
+
+    def test_unrelated_scores_low(self):
+        [orig] = units_of("a.py", ORIGINAL)
+        [other] = units_of("c.py", UNRELATED)
+        score = pair_redundancy(other.norm, orig.norm)
+        self.assertLessEqual(score, 0.40, f"unrelated score too high: {score:.3f}")
+
+    def test_pure_rename_same_fingerprint(self):
+        [orig] = units_of("a.py", ORIGINAL)
+        [clone] = units_of("b.py", PURE_RENAME)
+        self.assertEqual(orig.fp, clone.fp)
+
+    def test_interface_variant_different_fingerprint(self):
+        # anchors (.value/.weight vs .amount/.scale) survive normalization
+        [orig] = units_of("a.py", ORIGINAL)
+        [variant] = units_of("b.py", INTERFACE_VARIANT)
+        self.assertNotEqual(orig.fp, variant.fp)
+
+    def test_fickle_pair_distinguished(self):
+        # assertGreaterEqual vs assertLessEqual: was an exact-dup collision
+        # under full alpha-renaming; anchors must now keep them apart
+        [ge] = units_of("g.py", FICKLE_GE)
+        [le] = units_of("l.py", FICKLE_LE)
+        self.assertNotEqual(ge.fp, le.fp)
+        self.assertLess(pair_redundancy(ge.norm, le.norm), 1.0)
+
+
+class TestScoreTargets(unittest.TestCase):
+    def test_pure_rename_flagged_as_exact_duplicate(self):
+        corpus = units_of("a.py", ORIGINAL) + units_of("c.py", UNRELATED)
+        [rep] = score_targets(units_of("new.py", PURE_RENAME), corpus)
+        self.assertGreaterEqual(rep["redundancy"], 0.80)
+        self.assertEqual(verdict(rep, 0.55, 0.80), "duplicate")
+        best = rep["matches"][0]
+        self.assertEqual((best["file"], best["unit"]), ("a.py", "aggregate_metrics"))
+        self.assertTrue(best["exact_structural_dup"])
+
+    def test_interface_variant_flagged_with_anchor_evidence(self):
+        corpus = units_of("a.py", ORIGINAL) + units_of("c.py", UNRELATED)
+        [rep] = score_targets(units_of("new.py", INTERFACE_VARIANT), corpus)
+        best = rep["matches"][0]
+        self.assertEqual(best["unit"], "aggregate_metrics")
+        self.assertFalse(best["exact_structural_dup"])
+        self.assertNotEqual(verdict(rep, 0.55, 0.80), "novel")
+        self.assertGreaterEqual(best["algo_similarity"], 0.8)
+        self.assertIn("amount", best["anchor_diff"]["only_target"])
+        self.assertIn("value", best["anchor_diff"]["only_match"])
+
+    def test_novel_function_stays_novel(self):
+        corpus = units_of("a.py", ORIGINAL)
+        [rep] = score_targets(units_of("new.py", UNRELATED), corpus)
+        self.assertEqual(verdict(rep, 0.55, 0.80), "novel")
+
+    def test_marginal_bits_smaller_for_clone(self):
+        corpus = units_of("a.py", ORIGINAL) + units_of("c.py", UNRELATED)
+        [clone_rep] = score_targets(units_of("n1.py", PURE_RENAME), corpus)
+        # the corpus predicts the clone far better than it predicts anything novel
+        self.assertLess(clone_rep["marginal_bits"], clone_rep["standalone_bits"] * 0.5)
+
+    def test_structure_gate_blocks_uncorroborated_duplicate(self):
+        rep = {"best_pair": 0.9, "corpus_redundancy": 0.5, "best_structure": 0.2}
+        self.assertEqual(verdict(rep, 0.55, 0.80), "overlap")
+        rep["best_structure"] = 0.9
+        self.assertEqual(verdict(rep, 0.55, 0.80), "duplicate")
+        rep["best_structure"] = None  # missing data is not disagreement
+        self.assertEqual(verdict(rep, 0.55, 0.80), "duplicate")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+::endfile
+
+::file tests/test_skeleton.py
+::lang python
+::sha 5feea51808a2
+::lines 102
+::imports ast, cm.normalize, cm.skeleton, unittest
+::unit function algo_of @36-38 #ce5d7b21
+::sig algo_of(src)
+::algo cfg==,ret an=body:1,name:1,parse:1,py_algo:1
+::unit class TestPyAlgo @41-60 #af225947
+::sig class TestPyAlgo
+::unit method TestPyAlgo.test_cfg_shape @42-44 #4292d78c
+::sig test_cfg_shape(self)
+::algo cfg==,call an=algo_of:1,assertIn:1
+::unit method TestPyAlgo.test_anchors_counted @46-50 #28bce0eb
+::sig test_anchors_counted(self)
+::algo cfg==,call,call,call an=algo_of:1,assertIn:3
+::unit method TestPyAlgo.test_recursion_flag @52-54 #37b268f7
+::sig test_recursion_flag(self)
+::algo cfg=call,call an=algo_of:2,assertIn:1,assertNotIn:1
+::unit method TestPyAlgo.test_generator_flag @56-57 #508fe06e
+::sig test_generator_flag(self)
+::algo cfg=call an=algo_of:1,assertIn:1
+::unit method TestPyAlgo.test_docstring_not_a_statement @59-60 #288a7847
+::sig test_docstring_not_a_statement(self)
+::algo cfg=call an=algo_of:1,assertNotIn:1,split:1
+::unit class TestJsAlgo @63-76 #5e9545fc
+::sig class TestJsAlgo
+::unit method TestJsAlgo.test_flat_cfg_and_anchors @64-76 #e06f654c
+::sig test_flat_cfg_and_anchors(self)
+::algo cfg==,=,=,call,call,call an=assertIn:3,js_algo:1,mask_code:1,split:1
+::unit class TestSimilarity @79-97 #ec32ab40
+::sig class TestSimilarity
+::unit method TestSimilarity.test_same_algorithm_high @80-83 #9fc422d7
+::sig test_same_algorithm_high(self)
+::algo cfg==,=,call an=algo_of:2,algo_similarity:1,assertEqual:1,replace:1
+::unit method TestSimilarity.test_different_algorithm_low @85-87 #cbc00f43
+::sig test_different_algorithm_low(self)
+::algo cfg==,call an=algo_of:2,algo_similarity:1,assertLess:1
+::unit method TestSimilarity.test_missing_side_is_none @89-90 #0c50d920
+::sig test_missing_side_is_none(self)
+::algo cfg=call an=algo_of:1,algo_similarity:1,assertIsNone:1
+::unit method TestSimilarity.test_anchor_diff @92-97 #98ee575b
+::sig test_anchor_diff(self)
+::algo cfg==,=,=,call,call an=algo_of:2,anchor_diff:1,assertEqual:2,replace:1
+::content 102
+import ast
+import unittest
+
+from cm.skeleton import algo_similarity, anchor_diff, js_algo, py_algo
+from cm.normalize import mask_code
+
+AGG = '''def aggregate_metrics(samples, window):
+    """doc"""
+    rows = []
+    bucket = []
+    for sample in samples:
+        bucket.append(sample.value * sample.weight)
+        if len(bucket) >= window:
+            total = sum(bucket)
+            rows.append({"count": len(bucket), "total": total, "mean": total / len(bucket)})
+            bucket = []
+    if bucket:
+        total = sum(bucket)
+        rows.append({"count": len(bucket), "total": total, "mean": total / len(bucket)})
+    return rows
+'''
+
+FACTORIAL = '''def fact(n):
+    if n <= 1:
+        return 1
+    return n * fact(n - 1)
+'''
+
+GEN = '''def pairs(items):
+    for a in items:
+        for b in items:
+            yield a, b
+'''
+
+
+def algo_of(src):
+    node = ast.parse(src).body[0]
+    return py_algo(node, node.name)
+
+
+class TestPyAlgo(unittest.TestCase):
+    def test_cfg_shape(self):
+        algo = algo_of(AGG)
+        self.assertIn("cfg==,=,for{call,if{=,call,=}},if{=,call},ret", algo)
+
+    def test_anchors_counted(self):
+        algo = algo_of(AGG)
+        self.assertIn("append:3", algo)
+        self.assertIn("len:5", algo)
+        self.assertIn(">=:1", algo)
+
+    def test_recursion_flag(self):
+        self.assertIn("fl=rec", algo_of(FACTORIAL))
+        self.assertNotIn("fl=", algo_of(AGG))
+
+    def test_generator_flag(self):
+        self.assertIn("gen", algo_of(GEN))
+
+    def test_docstring_not_a_statement(self):
+        self.assertNotIn("expr", algo_of(AGG).split(" an=")[0])
+
+
+class TestJsAlgo(unittest.TestCase):
+    def test_flat_cfg_and_anchors(self):
+        src = '''function sumAll(rows) {
+  let total = 0;
+  for (const row of rows) {
+    if (row.ok) total += row.value;
+  }
+  return total;
+}'''
+        algo = js_algo(mask_code(src, "javascript"), "sumAll")
+        cfg = algo.split(" an=")[0]
+        self.assertIn("for1", cfg)
+        self.assertIn("ret1", cfg)
+        self.assertIn("value:1", algo)
+
+
+class TestSimilarity(unittest.TestCase):
+    def test_same_algorithm_high(self):
+        a = algo_of(AGG)
+        b = algo_of(AGG.replace("aggregate_metrics", "other_name"))
+        self.assertEqual(algo_similarity(a, b), 1.0)
+
+    def test_different_algorithm_low(self):
+        sim = algo_similarity(algo_of(AGG), algo_of(FACTORIAL))
+        self.assertLess(sim, 0.5)
+
+    def test_missing_side_is_none(self):
+        self.assertIsNone(algo_similarity(algo_of(AGG), ""))
+
+    def test_anchor_diff(self):
+        a = algo_of(AGG)
+        b = algo_of(AGG.replace(".weight", ".scale"))
+        only_a, only_b = anchor_diff(a, b)
+        self.assertEqual(only_a, ["weight"])
+        self.assertEqual(only_b, ["scale"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+::endfile

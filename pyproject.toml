@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cm-compiler"
+version = "0.2.0"
+description = "Compile a codebase into a context management artifact (PROJECT.cm) with information-theoretic redundancy checks."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[project.scripts]
+cm = "cm.cli:main"
+
+[tool.setuptools]
+packages = ["cm"]

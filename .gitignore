@@ -1,0 +1,16 @@
+# python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# cm machine-local state (mtimes, accept ledger is per-checkout derived from review)
+.cm/
+
+# editor / local claude settings
+.claude/settings.local.json
+.idea/
+.vscode/

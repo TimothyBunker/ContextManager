@@ -1,0 +1,2 @@
+# cm's own ignore file. Defaults already exclude VCS dirs, caches,
+# binaries, and *.cm outputs; add project-specific exclusions here.
