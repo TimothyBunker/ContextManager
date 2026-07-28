@@ -149,11 +149,38 @@ the "cross entropy went up" alarm — and it is localizable:
   original line numbers (alignment runs on per-line normalized text, so renamed
   clones still align)
 
-Verdicts compose two channels. The specific best-pair (info) score drives them
+### The literal channel
+
+A behavior-preserving rewrite may rename every identifier, restructure the
+control flow, split the work across helpers, or hoist values into module
+constants — but it **cannot change the constants the code emits or compares
+against**. So literals are extracted per unit (docstrings excluded, module
+constants attributed to the units referencing them) and weighted by corpus
+rarity: `"(?:.*/)?"` appearing in ≤3 units is a near-unique signature, while
+`"utf-8"` or `100` is filtered out as noise. Sharing 3+ rare literals with
+one unit escalates to duplicate regardless of every other score.
+
+This channel is what catches the hard cases. Nine behavior-preserving
+disguises of one function — including four written by an agent told to evade
+detection, verified equivalent over 222,632 differential test cases — are
+caught 9/9, while four genuinely-novel controls (including a same-genre
+string scanner and a file sharing common idioms) pass 4/4. That corpus lives
+in [tests/test_adversarial.py](tests/test_adversarial.py); both directions
+are asserted, because a detector that flags everything is useless.
+
+### Composing the verdict
+
+Verdicts compose the channels. The specific best-pair (info) score drives them
 (`--warn` 0.55 / `--fail` 0.80 by default), but a "duplicate" claim must be
 *corroborated by structure*: an info-hot match whose algorithm skeleton
 disagrees (similarity < 0.5) is shared idiom, not duplication, and is
-downgraded to "overlap". When a near-clone is flagged, the report prints the
+downgraded to "overlap". Independently of the aggregate score, **partial-clone
+escalation** fires on evidence that padding and restructuring cannot dilute:
+10+ overlapping normalized lines with one candidate, 3+ shared rare literals,
+or algorithm-shape similarity ≥ 0.70. Candidates are selected by that evidence
+too, not only by compression rank — a heavily restructured clone often scores
+poorly on compression and would otherwise never be examined. When a near-clone
+is flagged, the report prints the
 **anchor diff** — `anchors only here: assertGreaterEqual | only there:
 assertLessEqual` — the discrete evidence of what actually distinguishes the
 pair. The corpus-conditional score is held to a higher bar because normalized

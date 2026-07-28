@@ -443,6 +443,8 @@ def _write_protocol(root: Path) -> str:
 
 
 def _install_hook(root: Path) -> str:
+    """Install both write gates: PreToolUse denies duplicates before they reach
+    disk, PostToolUse reconciles the baseline after clean writes land."""
     p = root / ".claude" / "settings.json"
     data = {}
     if p.is_file():
@@ -450,16 +452,26 @@ def _install_hook(root: Path) -> str:
             data = json.loads(p.read_text(encoding="utf-8"))
         except ValueError:
             return "SKIPPED hook install: .claude/settings.json is not valid JSON"
-    matchers = data.setdefault("hooks", {}).setdefault("PostToolUse", [])
-    for m in matchers:
-        if any("cm gate" in h.get("command", "") for h in m.get("hooks", [])):
-            return "hook already installed in .claude/settings.json"
-    command = "cm gate --hook" if shutil.which("cm") else f'"{sys.executable}" -m cm gate --hook'
-    matchers.append({"matcher": "Write|Edit|MultiEdit",
-                     "hooks": [{"type": "command", "command": command}]})
+    command = "cm hook" if shutil.which("cm") else f'"{sys.executable}" -m cm hook'
+    hooks = data.setdefault("hooks", {})
+    installed = []
+    for event in ("PreToolUse", "PostToolUse"):
+        matchers = hooks.setdefault(event, [])
+        stale = [m for m in matchers
+                 if any("cm gate --hook" in h.get("command", "") for h in m.get("hooks", []))]
+        for m in stale:
+            matchers.remove(m)  # supersede the pre-0.3 post-only gate
+        if any("cm hook" in h.get("command", "")
+               for m in matchers for h in m.get("hooks", [])):
+            continue
+        matchers.append({"matcher": "Write|Edit|MultiEdit",
+                         "hooks": [{"type": "command", "command": command}]})
+        installed.append(event)
     p.parent.mkdir(exist_ok=True)
     p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
-    return f"PostToolUse hook installed in .claude/settings.json ({command})"
+    if not installed:
+        return "hooks already installed in .claude/settings.json"
+    return f"{' + '.join(installed)} hooks installed in .claude/settings.json ({command})"
 
 
 def cmd_init(args) -> int:

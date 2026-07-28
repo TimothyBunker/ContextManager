@@ -20,6 +20,7 @@ class Unit:
     fp: str = ""  # structural fingerprint: sha256(norm)[:8]
     algo: str = ""  # algorithm skeleton: control-flow shape + anchor multiset
     bound: frozenset = frozenset()  # names this unit binds (params, locals, own name)
+    lits: frozenset = frozenset()  # distinctive literal constants (behavior-bound)
     scoreable: bool = True  # participates in redundancy scoring
     trivial: bool = False  # too small to score meaningfully
     path: str = ""  # posix relpath of owning file

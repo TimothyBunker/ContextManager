@@ -1,3 +1,3 @@
 """cm — compile a codebase into a context management artifact (PROJECT.cm)."""
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"

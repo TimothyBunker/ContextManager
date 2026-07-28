@@ -14,7 +14,8 @@ import re
 
 from .model import FileRecord, Unit
 from .normalize import bound_from_ast, bound_names, mask_code, norm_source
-from .skeleton import js_algo, py_algo
+from .skeleton import (js_algo, js_literals, js_module_consts, py_algo,
+                       py_literals, py_module_consts)
 
 LANG_BY_EXT = {
     ".py": "python", ".pyi": "python",
@@ -85,6 +86,7 @@ def _extract_python(rec: FileRecord) -> None:
             rec.imports.append(node.module)
     rec.imports = sorted(set(rec.imports))[:20]
     lines = rec.text.split("\n")
+    module_consts = py_module_consts(tree)
 
     def visit(body, prefix: str) -> None:
         for node in body:
@@ -99,6 +101,7 @@ def _extract_python(rec: FileRecord) -> None:
                     body="\n".join(lines[start - 1:node.end_lineno]),
                     bound=bound_from_ast(node),
                     algo=py_algo(node, node.name),
+                    lits=py_literals(node, module_consts),
                 ))
             elif isinstance(node, ast.ClassDef):
                 start = min([node.lineno] + [d.lineno for d in node.decorator_list])
@@ -193,6 +196,7 @@ def _extract_js(rec: FileRecord) -> None:
     lines = rec.text.split("\n")
     masked_lines = masked.split("\n")
     nl = [i for i, ch in enumerate(masked) if ch == "\n"]
+    module_consts = js_module_consts(rec.text)
 
     def line_of(offset: int) -> int:
         return bisect.bisect_right(nl, offset - 1) + 1
@@ -214,7 +218,9 @@ def _extract_js(rec: FileRecord) -> None:
         rec.units.append(Unit(kind=kind, name=name, qualname=name, signature=sig,
                               start=s, end=e, doc=_js_doc_above(lines, s), body=body,
                               bound=bound_names(body, rec.lang),
-                              algo=js_algo(masked_body, name) if kind == "function" else ""))
+                              algo=js_algo(masked_body, name) if kind == "function" else "",
+                              lits=js_literals(body, module_consts) if kind == "function"
+                              else frozenset()))
 
     for m in _JS_FUNC.finditer(masked):
         ob = masked.find("{", m.end() - 1)

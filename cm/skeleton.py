@@ -146,6 +146,113 @@ def py_algo(node, own_name: str) -> str:
     return _render(cfg, anchors, rec, gen)
 
 
+# ---------------------------------------------------------------- literals
+#
+# The literal channel. Renaming, restructuring, and re-idioming all preserve
+# behavior — but a behavior-preserving rewrite cannot change the constants the
+# code emits or compares against. Rare literals ("(?:.*/)?") are therefore a
+# near-unique signature that survives every disguise; common ones ("", 0, 1)
+# are noise and get filtered by corpus rarity at scoring time.
+
+_LIT_MIN_LEN = 2  # single chars are too common to identify anything
+_LIT_CAP = 40
+
+
+def _keep_literal(v) -> str | None:
+    if isinstance(v, str):
+        s = v.strip()
+        return s if len(s) >= _LIT_MIN_LEN else None
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return repr(v) if abs(v) > 1 else None
+    return None
+
+
+def py_module_consts(tree) -> dict:
+    """Module-level NAME = <literal> bindings, incl. simple containers.
+
+    Hoisting a literal into a module constant is a favorite disguise; the value
+    is still behavior-bound, so units referencing the name inherit it.
+    """
+    out: dict[str, list[str]] = {}
+    for node in tree.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        names = [t.id for t in targets if isinstance(t, ast.Name)]
+        if not names or node.value is None:
+            continue
+        lits = []
+        for sub in ast.walk(node.value):
+            if isinstance(sub, ast.Constant):
+                lit = _keep_literal(sub.value)
+                if lit:
+                    lits.append(lit)
+        if lits:
+            for name in names:
+                out[name] = lits[:_LIT_CAP]
+    return out
+
+
+def py_literals(node, module_consts: dict | None = None) -> frozenset:
+    """Distinctive constants in a Python unit (docstrings excluded).
+
+    Includes values of module-level constants the unit references.
+    """
+    docs = set()
+    for n in ast.walk(node):
+        body = getattr(n, "body", None)
+        if isinstance(body, list) and body and isinstance(body[0], ast.Expr) \
+                and isinstance(body[0].value, ast.Constant):
+            docs.add(id(body[0].value))
+    out = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Constant) and id(n) not in docs:
+            lit = _keep_literal(n.value)
+            if lit:
+                out.add(lit)
+        elif module_consts and isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
+            out.update(module_consts.get(n.id, ()))
+    return frozenset(sorted(out)[:_LIT_CAP])
+
+
+_JS_STR = re.compile(r"'([^'\\\n]*(?:\\.[^'\\\n]*)*)'|\"([^\"\\\n]*(?:\\.[^\"\\\n]*)*)\"")
+_JS_NUM = re.compile(r"(?<![\w.])\d{2,}(?:\.\d+)?")
+
+
+_JS_CONST = re.compile(
+    r"(?m)^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*"
+    r"('[^'\n]*'|\"[^\"\n]*\"|\d[\w.]*)\s*;?\s*$")
+
+
+def js_module_consts(text: str) -> dict:
+    """Top-level `const NAME = <literal>` bindings in a JS/TS file."""
+    out = {}
+    for m in _JS_CONST.finditer(text):
+        raw = m.group(2)
+        value = raw[1:-1] if raw[0] in "'\"" else raw
+        lit = _keep_literal(value)
+        if lit:
+            out[m.group(1)] = [lit]
+    return out
+
+
+def js_literals(body: str, module_consts: dict | None = None) -> frozenset:
+    """Distinctive constants in a JS/TS unit (regex-scanned from raw text)."""
+    out = set()
+    for m in _JS_STR.finditer(body):
+        lit = _keep_literal(m.group(1) if m.group(1) is not None else m.group(2))
+        if lit:
+            out.add(lit)
+    out.update(m.group() for m in _JS_NUM.finditer(body))
+    if module_consts:
+        for name, lits in module_consts.items():
+            if re.search(rf"\b{re.escape(name)}\b", body):
+                out.update(lits)
+    return frozenset(sorted(out)[:_LIT_CAP])
+
+
 # ---------------------------------------------------------------- javascript
 
 _JS_CFG_KW = {"for", "while", "do", "if", "else", "switch", "try", "catch",

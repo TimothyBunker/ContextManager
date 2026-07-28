@@ -42,6 +42,7 @@ def _unit_to_dict(u: Unit) -> dict:
         "signature": u.signature, "start": u.start, "end": u.end,
         "doc": u.doc, "norm": u.norm, "fp": u.fp, "algo": u.algo,
         "scoreable": u.scoreable, "trivial": u.trivial, "bound": sorted(u.bound),
+        "lits": sorted(u.lits),
     }
 
 
@@ -53,6 +54,7 @@ def _unit_from_dict(d: dict, lines: list[str], path: str, lang: str) -> Unit:
         norm=d["norm"], fp=d["fp"], algo=d.get("algo", ""),
         scoreable=d["scoreable"], trivial=d["trivial"],
         path=path, lang=lang, bound=frozenset(d["bound"]),
+        lits=frozenset(d.get("lits", ())),
     )
 
 

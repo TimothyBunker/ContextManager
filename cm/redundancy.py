@@ -35,8 +35,23 @@ _TOP_CTX_UNITS = 64
 # weakly dilutes the algorithm-shape similarity. Escalate on either.
 _ESC_OVERLAP_LINES = 10  # this many overlapping normalized lines is never idiom
 _ESC_OVERLAP_MIN = 6  # ...or fewer, when they cover most of the smaller unit
-_ESC_ALGO = 0.75
+_ESC_ALGO = 0.70
 _ESC_ALGO_MIN_SCORE = 0.2
+
+# Literal channel: a behavior-preserving rewrite may rename everything and
+# restructure the control flow, but it cannot change the constants the code
+# emits or compares against. Literals rare in the corpus are near-unique
+# signatures; common ones ("utf-8", 100) are filtered by document frequency.
+_LIT_RARE_DF = 3  # a literal in <= this many corpus units counts as distinctive
+_ESC_LIT_SHARED = 3  # sharing this many rare literals is not coincidence
+_ESC_LIT_JACCARD = 0.6  # ...or a high enough share of a smaller literal set
+_EVIDENCE_CANDIDATES = 5  # extra units to examine on evidence rather than score
+
+
+def rare_literal_overlap(target: Unit, cand: Unit, df: dict) -> tuple[int, list[str]]:
+    """Count of shared corpus-rare literals between two units, plus examples."""
+    shared = [l for l in (target.lits & cand.lits) if df.get(l, 0) <= _LIT_RARE_DF]
+    return len(shared), sorted(shared, key=len, reverse=True)[:4]
 
 
 def standalone_bits(data: bytes) -> float:
@@ -106,8 +121,11 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list
     """Score each target unit against the corpus. Returns one report dict per unit."""
     reports = []
     fp_index: dict[str, list[Unit]] = {}
+    lit_df: dict[str, int] = {}
     for c in corpus:
         fp_index.setdefault(c.fp, []).append(c)
+        for lit in c.lits:
+            lit_df[lit] = lit_df.get(lit, 0) + 1
 
     for t in targets:
         nb = t.norm.encode("utf-8")
@@ -141,19 +159,42 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list
         best_pair = scored[0][0] if scored else 0.0
         redundancy = max(corpus_red, best_pair)
 
+        # Candidates to examine in detail: the best compression matches, plus
+        # any unit the cheap evidence channels flag. A restructured clone can
+        # rank poorly on compression while sharing rare literals or shape —
+        # selecting only by score would never look at it.
+        by_score = [c for _, c in scored[:top]]
+        seen_ids = {id(c) for c in by_score}
+        extra = []
+        for score_c, c in scored[top:]:
+            n_l, _ = rare_literal_overlap(t, c, lit_df)
+            a_s = algo_similarity(t.algo, c.algo)
+            if n_l >= 2 or (a_s is not None and a_s >= _ESC_ALGO):
+                extra.append((score_c, c))
+                seen_ids.add(id(c))
+            if len(extra) >= _EVIDENCE_CANDIDATES:
+                break
+        examine = scored[:top] + extra
+
         matches = []
         escalated = None
-        for score, c in scored[:top]:
-            if score <= 0.05:
+        for score, c in examine:
+            if score <= 0.05 and id(c) not in seen_ids:
                 continue
             sim = algo_similarity(t.algo, c.algo)
             overlap = overlap_blocks(t, c)
             ov_lines = sum(o["lines"] for o in overlap)
             min_lines = min(t.end - t.start + 1, c.end - c.start + 1)
+            n_lits, lit_examples = rare_literal_overlap(t, c, lit_df)
+            lit_jac = n_lits / min(len(t.lits), len(c.lits)) if (t.lits and c.lits) else 0.0
             esc_reason = None
             if ov_lines >= _ESC_OVERLAP_LINES or (
                     ov_lines >= _ESC_OVERLAP_MIN and ov_lines >= 0.5 * min_lines):
                 esc_reason = f"{ov_lines} normalized lines overlap"
+            elif n_lits >= _ESC_LIT_SHARED or (n_lits >= 2 and lit_jac >= _ESC_LIT_JACCARD):
+                shown = ", ".join(repr(l) for l in lit_examples)
+                esc_reason = (f"{n_lits} rare literal constants shared ({shown}) — "
+                              f"behavior-bound values a rewrite cannot change")
             elif sim is not None and sim >= _ESC_ALGO and score >= _ESC_ALGO_MIN_SCORE:
                 esc_reason = f"algorithm shape match (algo-sim {sim:.2f})"
             entry = {
@@ -163,6 +204,7 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list
                 "token_similarity": round(token_similarity(t.norm, c.norm), 3),
                 "algo_similarity": sim,
                 "overlap_lines": ov_lines,
+                "shared_rare_literals": n_lits,
                 "overlap": overlap,
             }
             if sim is not None and (score >= 0.5 or esc_reason):
@@ -171,7 +213,8 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list
                     entry["anchor_diff"] = {"only_target": only_t, "only_match": only_c}
             if esc_reason and escalated is None:
                 escalated = {"file": c.path, "unit": c.qualname, "reason": esc_reason,
-                             "overlap_lines": ov_lines, "algo_similarity": sim}
+                             "overlap_lines": ov_lines, "algo_similarity": sim,
+                             "shared_rare_literals": n_lits}
             matches.append(entry)
         report.update(
             marginal_bits=round(marginal),
@@ -179,6 +222,7 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list
             best_pair=round(best_pair, 3),
             corpus_redundancy=round(corpus_red, 3),
             best_structure=matches[0]["algo_similarity"] if matches else None,
+            best_literal_overlap=max((m["shared_rare_literals"] for m in matches), default=0),
             wasted_bits=round(base * redundancy),
             exact_dups=[f"{c.path}#{c.qualname}" for c in exact],
             escalated=escalated,

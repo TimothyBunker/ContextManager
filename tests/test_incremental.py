@@ -134,7 +134,8 @@ class TestInit(unittest.TestCase):
             self.assertTrue((root / "CLAUDE.md").is_file())
             self.assertIn("cm gate", (root / "CLAUDE.md").read_text(encoding="utf-8"))
             settings = (root / ".claude" / "settings.json").read_text(encoding="utf-8")
-            self.assertIn("cm gate --hook", settings)
+            self.assertIn("cm hook", settings)
+            self.assertIn("PreToolUse", settings)
             self.assertIn("PostToolUse", settings)
             # idempotent
             self.assertEqual(run_cli("init", str(root), "--hooks"), 0)
