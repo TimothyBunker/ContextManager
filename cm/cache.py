@@ -115,22 +115,41 @@ def save_cache(root: Path, result: ScanResult) -> None:
     os.replace(tmp, d / _CACHE)
 
 
-def load_accepted(root: Path) -> set[str]:
+def load_accepted(root: Path) -> set[tuple[str, str]]:
+    """The ledger: reviewed (target_fp, match_fp) pairs. "*" = any match.
+
+    A bare fp line (the pre-0.7 format) reads as a wildcard, so old ledgers
+    keep working. Entries expire naturally: editing either unit changes its
+    fingerprint, and the pair no longer covers the new resemblance.
+    """
     p = cm_dir(root) / _ACCEPTED
     if not p.is_file():
         return set()
     out = set()
     for line in p.read_text(encoding="utf-8").splitlines():
-        line = line.split("#", 1)[0].strip()
-        if line:
-            out.add(line)
+        parts = line.split("#", 1)[0].split()
+        if len(parts) == 1:
+            out.add((parts[0], "*"))
+        elif len(parts) >= 2:
+            out.add((parts[0], parts[1]))
     return out
 
 
-def add_accepted(root: Path, fps: list[str], reason: str = "") -> None:
+def accepted_covers(accepted: set, target_fp: str, match_fp: str) -> bool:
+    return (target_fp, "*") in accepted or (target_fp, match_fp) in accepted
+
+
+def add_accepted(root: Path, fps: list[str], reason: str = "", match: str = "*") -> None:
     d = cm_dir(root)
     d.mkdir(exist_ok=True)
     suffix = f"  # {reason}" if reason else ""
     with open(d / _ACCEPTED, "a", encoding="utf-8") as f:
         for fp in fps:
-            f.write(fp + suffix + "\n")
+            f.write(f"{fp} {match}{suffix}\n")
+
+
+def ledger_lines(root: Path) -> list[str]:
+    p = cm_dir(root) / _ACCEPTED
+    if not p.is_file():
+        return []
+    return [ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]

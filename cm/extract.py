@@ -1,9 +1,18 @@
-"""Per-language unit extraction: files -> functions/methods/classes with spans and docs.
+"""The Index's language adapters: files -> units with spans, docs, features.
 
+Adapters register per language and are self-contained — adding a language is
+one function that fills rec.units (and optionally rec.doc/rec.imports),
+registered with the decorator:
+
+    @adapter("go")
+    def _extract_go(rec: FileRecord) -> None:
+        rec.units.append(Unit(...))   # spans, body; bound/feats if derivable
+
+The engine finishes every unit uniformly (normalization, fingerprint,
+trivial marking), so an adapter only supplies boundaries and raw facts.
 Python uses the stdlib ast (exact). JavaScript/TypeScript use a regex +
-brace-matching pass over masked text (good-enough v0; tree-sitter is the
-upgrade path). Other code languages fall back to one file-level unit so
-redundancy detection still works at file granularity.
+brace-matching pass over masked text. Code languages without an adapter fall
+back to one file-level unit, so the tripwire still works at file granularity.
 """
 from __future__ import annotations
 
@@ -33,6 +42,17 @@ LANG_BY_EXT = {
 _FILE_UNIT_LANGS = {"c", "cpp", "csharp", "go", "rust", "java", "shell", "powershell", "sql", "css"}
 
 _MIN_NORM_CHARS = 64  # below this a unit is "trivial": too small to score honestly
+
+ADAPTERS: dict[str, callable] = {}
+
+
+def adapter(*langs):
+    """Register a language adapter (see module docstring)."""
+    def deco(fn):
+        for lang in langs:
+            ADAPTERS[lang] = fn
+        return fn
+    return deco
 
 
 def lang_for(path: str) -> str:
@@ -70,6 +90,7 @@ def _first_doc_line(node) -> str:
     return doc.strip().splitlines()[0][:200] if doc else ""
 
 
+@adapter("python")
 def _extract_python(rec: FileRecord) -> None:
     try:
         tree = ast.parse(rec.text)
@@ -190,6 +211,7 @@ def _js_doc_above(lines: list[str], start_line: int) -> str:
     return ""
 
 
+@adapter("javascript", "typescript")
 def _extract_js(rec: FileRecord) -> None:
     masked = mask_code(rec.text, rec.lang)
     lines = rec.text.split("\n")
@@ -247,19 +269,21 @@ def _extract_js(rec: FileRecord) -> None:
 
 # ---------------------------------------------------------------- dispatch
 
+@adapter("markdown")
+def _extract_markdown(rec: FileRecord) -> None:
+    for line in rec.text.split("\n"):
+        if line.startswith("#"):
+            rec.doc = line.lstrip("#").strip()[:200]
+            break
+
+
 def extract_units(rec: FileRecord) -> None:
-    """Populate rec.units (and doc/imports) in place."""
-    if rec.lang == "python":
-        _extract_python(rec)
-    elif rec.lang in ("javascript", "typescript"):
-        _extract_js(rec)
+    """Populate rec.units (and doc/imports) in place via the language adapter."""
+    fn = ADAPTERS.get(rec.lang)
+    if fn is not None:
+        fn(rec)
     elif rec.lang in _FILE_UNIT_LANGS:
         rec.units.append(Unit("file", rec.path, rec.path, f"({rec.lang} file)",
                               1, max(rec.lines, 1), body=rec.text))
-    elif rec.lang == "markdown":
-        for line in rec.text.split("\n"):
-            if line.startswith("#"):
-                rec.doc = line.lstrip("#").strip()[:200]
-                break
     for u in rec.units:
         _finish(u, rec.lang, rec.path)

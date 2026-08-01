@@ -25,18 +25,25 @@ is deliberately simple and swappable.
    `.cm/` cache; only edits are re-analyzed.
 2. **Tripwire** — new/changed units are screened against the index by exact,
    deterministic rules (below). The tripwire never judges; it flags.
-3. **Review** — a flagged write is held (pre-disk when possible) and the
-   *agent* reads both units and decides: reuse, extend, or intentionally
-   different. Semantic judgment is done by the thing that is good at it.
-4. **Ledger** — the decision is recorded (`cm accept <fp> --reason "..."`),
-   so no resemblance is ever reviewed twice.
+3. **Review** — a flagged write is held (pre-disk when possible), the holds
+   persist to `.cm/holds.json`, and `cm review` lists them with evidence and
+   the exact resolution commands. The *agent* reads both units and decides:
+   reuse, extend, or intentionally different. Semantic judgment is done by
+   the thing that is good at it.
+4. **Ledger** — the decision is recorded pair-scoped
+   (`cm accept <fp> --match <fp> --reason "..."`): it covers that pair only,
+   the same unit resembling something new is still held, and editing either
+   unit changes its fingerprint and re-opens the question. `cm ledger` lists
+   every decision with its reason.
 
 ## Commands
 
 ```
 cm init [path] [--hooks]     install into a repo: baseline + agent protocol (+ write-gate hooks)
 cm gate [path] [--hook]      recompile incrementally, screen changed units, hold for review
-cm accept <fp...> --reason   record a review decision in the ledger
+cm review [--root .]         list pending holds with evidence and resolutions
+cm accept <fp> --match <fp>  record a pair-scoped review decision in the ledger
+cm ledger [--root .]         list recorded decisions and their reasons
 cm build [path] [--full]     compile the tree -> PROJECT.cm (incremental by default)
 cm status [path]             is the baseline current? what changed since it?
 cm check <files> --root .    screen specific files against the tree

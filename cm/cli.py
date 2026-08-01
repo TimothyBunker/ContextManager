@@ -8,13 +8,15 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .cache import add_accepted, find_root, load_accepted, load_cache, save_cache
+from .cache import (accepted_covers, add_accepted, find_root, ledger_lines,
+                    load_accepted, load_cache, save_cache)
 from .cmfile import emit, parse
 from .detectors import REGISTRY, enabled_names, load_enabled, set_enabled
 from .extract import extract_units
 from .ignore import IgnoreRules
 from .model import Unit
 from .redundancy import requires_review, score_targets
+from .review import clear_holds, load_holds, save_holds
 from .scan import MAX_FILE_BYTES, load_file, record_from_bytes, scan_tree
 
 
@@ -188,9 +190,20 @@ def _changed_units(result, cache: dict) -> list[Unit]:
 
 
 def _screen(reports, accepted):
-    """Units needing review, minus fingerprints already accepted in the ledger."""
-    return [rep for rep in reports
-            if requires_review(rep) and rep["fp"] not in accepted]
+    """Units needing review, minus resemblances the ledger already covers.
+
+    Pair-scoped: an accepted (target, match) pair stops blocking that pair
+    only — the same unit resembling something new still gets held.
+    """
+    held = []
+    for rep in reports:
+        if not requires_review(rep):
+            continue
+        uncovered = [m for m in rep["matches"]
+                     if m["reasons"] and not accepted_covers(accepted, rep["fp"], m["fp"])]
+        if uncovered:
+            held.append({**rep, "matches": uncovered})
+    return held
 
 
 def _print_block(headline, footer, blocking, out):
@@ -201,7 +214,9 @@ def _print_block(headline, footer, blocking, out):
     print("Read each cited unit, then decide: reuse it, extend it, or — if the "
           "resemblance is intentional — record the decision:", file=out)
     for rep in blocking:
-        print(f'  cm accept {rep["fp"]} --reason "..."    # {rep["unit"]}', file=out)
+        for m in rep["matches"][:2]:
+            print(f'  cm accept {rep["fp"]} --match {m["fp"]} --reason "..."'
+                  f'    # {rep["unit"]} vs {m["unit"]}', file=out)
     print(footer, file=out)
 
 
@@ -236,13 +251,15 @@ def _gate_run(root: Path, top: int, hook: bool) -> int:
     blocking = _screen(reports, load_accepted(root))
 
     if blocking:
+        save_holds(root, "gate", blocking)
         _print_block(
             f"cm gate: REVIEW REQUIRED — {len(blocking)} unit(s) resemble "
-            f"code this project already has.",
+            f"code this project already has. ('cm review' lists these holds.)",
             "Baseline NOT updated; the gate will re-flag until resolved.",
             blocking, out)
         return 2 if hook else 1
 
+    clear_holds(root)
     _commit(root, result, _corpus_stats(result.records))
     if hook:
         # exit-0 stdout is visible in the verbose transcript: leave a trace of
@@ -314,9 +331,11 @@ def _precheck(root: Path, abspath: Path, proposed: str, top: int) -> int:
     reports = score_targets(targets, corpus, top=top, detectors=load_enabled(root))
     blocking = _screen(reports, load_accepted(root))
     if blocking:
+        save_holds(root, "precheck", blocking)
         _print_block(
             f"cm precheck: REVIEW REQUIRED — the write was withheld. "
-            f"{len(blocking)} unit(s) resemble code this project already has.",
+            f"{len(blocking)} unit(s) resemble code this project already has. "
+            f"('cm review' lists these holds.)",
             "Revise the write to reuse/extend the cited unit, or accept first and retry.",
             blocking, sys.stderr)
         return 2
@@ -359,8 +378,54 @@ def cmd_accept(args) -> int:
             print(f"error: {fp!r} is not a unit fingerprint (8 hex chars)", file=sys.stderr)
             return 2
         fps.append(fp)
-    add_accepted(root, fps, args.reason)
-    print(f"accepted {len(fps)} fingerprint(s); 'cm gate' will no longer block on them")
+    if args.match != "*" and (len(args.match) != 8
+                              or any(c not in "0123456789abcdef" for c in args.match)):
+        print(f"error: --match {args.match!r} is not a unit fingerprint", file=sys.stderr)
+        return 2
+    add_accepted(root, fps, args.reason, args.match)
+    scope = f"against {args.match}" if args.match != "*" else "against any match"
+    print(f"accepted {len(fps)} fingerprint(s) {scope}; recorded in the ledger")
+    return 0
+
+
+def cmd_review(args) -> int:
+    root = Path(args.root).resolve()
+    data = load_holds(root)
+    holds = data.get("holds", [])
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 1 if holds else 0
+    if not holds:
+        print("no pending holds")
+        return 0
+    withheld = data.get("source") == "precheck"
+    print(f"{len(holds)} pending hold(s) from {data.get('source', '?')} "
+          f"at {data.get('seen', '?')}"
+          + (" — the write was withheld, nothing landed on disk" if withheld else ""))
+    for h in holds:
+        print(f"\n[ REVIEW] {h['signature'] or h['unit']}  "
+              f"{h['file']}@{h['span'][0]}-{h['span'][1]}  #{h['fp']}")
+        for m in h["matches"]:
+            print(f"    resembles {m['unit']}  {m['file']}@{m['span'][0]}-{m['span'][1]}")
+            for reason in m["reasons"]:
+                print(f"       - {reason}")
+            if m["shared"]:
+                print("       shared tokens: " + ", ".join(repr(s) for s in m["shared"]))
+            print(f'       to record as intentional:  cm accept {h["fp"]} '
+                  f'--match {m["fp"]} --reason "..."')
+    print("\nResolve by reusing/extending the cited units (then re-run the write "
+          "or 'cm gate'), or accept the pairs above.")
+    return 1
+
+
+def cmd_ledger(args) -> int:
+    lines = ledger_lines(Path(args.root).resolve())
+    if not lines:
+        print("ledger is empty")
+        return 0
+    print("accepted resemblances (target_fp match_fp  # reason):")
+    for line in lines:
+        print(f"  {line}")
     return 0
 
 
@@ -574,11 +639,22 @@ def main(argv=None) -> int:
     hk.add_argument("--top", type=int, default=3)
     hk.set_defaults(fn=cmd_hook)
 
-    ac = sub.add_parser("accept", help="mark flagged fingerprints as reviewed-and-intentional")
+    ac = sub.add_parser("accept", help="record a review decision in the ledger")
     ac.add_argument("fps", nargs="+", metavar="fp")
     ac.add_argument("--root", default=".")
-    ac.add_argument("--reason", default="", help="why the similarity is intentional (recorded)")
+    ac.add_argument("--match", default="*", metavar="fp",
+                    help="scope the decision to one matched unit (default: any match)")
+    ac.add_argument("--reason", default="", help="why the resemblance is intentional (recorded)")
     ac.set_defaults(fn=cmd_accept)
+
+    rv = sub.add_parser("review", help="list pending holds with evidence and resolutions")
+    rv.add_argument("--root", default=".")
+    rv.add_argument("--json", action="store_true")
+    rv.set_defaults(fn=cmd_review)
+
+    lg = sub.add_parser("ledger", help="list recorded review decisions")
+    lg.add_argument("--root", default=".")
+    lg.set_defaults(fn=cmd_ledger)
 
     ini = sub.add_parser("init", help="install cm into a repo: baseline + agent protocol")
     ini.add_argument("path", nargs="?", default=".")

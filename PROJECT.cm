@@ -1,8 +1,8 @@
 ::cm 0.3
 ::project ContextManager
 ::root .
-::generated 2026-08-01T06:02:57+00:00
-::stats files=40 units=220 functions=188 raw_bytes=150523
+::generated 2026-08-01T06:18:06+00:00
+::stats files=43 units=245 functions=210 raw_bytes=163597
 
 ::file .claude-plugin/marketplace.json
 ::lang json
@@ -87,10 +87,10 @@ the codebase already contains.
 
 ::file README.md
 ::lang markdown
-::sha d66d194e4d7a
-::lines 187
+::sha 9b96ebf4a50d
+::lines 204
 ::doc cm — the context manager compiler
-::content 187
+::content 204
 # cm — the context manager compiler
 
 `cm` compiles a codebase into a single readable, structured artifact — **`PROJECT.cm`** —
@@ -118,22 +118,30 @@ is deliberately simple and swappable.
    `.cm/` cache; only edits are re-analyzed.
 2. **Tripwire** — new/changed units are screened against the index by exact,
    deterministic rules (below). The tripwire never judges; it flags.
-3. **Review** — a flagged write is held (pre-disk when possible) and the
-   *agent* reads both units and decides: reuse, extend, or intentionally
-   different. Semantic judgment is done by the thing that is good at it.
-4. **Ledger** — the decision is recorded (`cm accept <fp> --reason "..."`),
-   so no resemblance is ever reviewed twice.
+3. **Review** — a flagged write is held (pre-disk when possible), the holds
+   persist to `.cm/holds.json`, and `cm review` lists them with evidence and
+   the exact resolution commands. The *agent* reads both units and decides:
+   reuse, extend, or intentionally different. Semantic judgment is done by
+   the thing that is good at it.
+4. **Ledger** — the decision is recorded pair-scoped
+   (`cm accept <fp> --match <fp> --reason "..."`): it covers that pair only,
+   the same unit resembling something new is still held, and editing either
+   unit changes its fingerprint and re-opens the question. `cm ledger` lists
+   every decision with its reason.
 
 ## Commands
 
 ```
 cm init [path] [--hooks]     install into a repo: baseline + agent protocol (+ write-gate hooks)
 cm gate [path] [--hook]      recompile incrementally, screen changed units, hold for review
-cm accept <fp...> --reason   record a review decision in the ledger
+cm review [--root .]         list pending holds with evidence and resolutions
+cm accept <fp> --match <fp>  record a pair-scoped review decision in the ledger
+cm ledger [--root .]         list recorded decisions and their reasons
 cm build [path] [--full]     compile the tree -> PROJECT.cm (incremental by default)
 cm status [path]             is the baseline current? what changed since it?
 cm check <files> --root .    screen specific files against the tree
 cm audit [path]              pairwise resemblance audit of the whole tree
+cm detectors [--root .]      list or toggle tripwire detectors for a repo
 cm drift <manifest>          [experimental] context-vs-PROJECT.cm divergence
 ```
 
@@ -150,19 +158,28 @@ carry no identity. Module-level constants count for the units that reference
 them, because hoisting a literal into a named constant is a demonstrated
 disguise. Every feature is a string you can grep for in PROJECT.cm.
 
-A unit is flagged for review when any of four exact rules fires:
+The tripwire is a **detector registry** ([cm/detectors/](cm/detectors/)):
+each detector is a self-contained plugin that notices one kind of
+resemblance and emits Evidence; a unit is flagged when any enabled detector
+fires. Three ship by default:
 
-| rule | defeats |
-|---|---|
-| identical fingerprint (hash of the normalized body) | pure renames |
-| 3+ shared **distinctive** tokens with one unit | restructuring: loops→recursion, dispatch tables, helper splits |
-| 2+ shared distinctive tokens covering most of both feature sets | small units |
-| 10+ matching normalized lines with one unit | copied cores buried in padding |
+| detector | fires on | defeats |
+|---|---|---|
+| `fingerprint` | identical hash of the normalized body | pure renames |
+| `tokens` | 3+ shared **distinctive** tokens (or 2+ covering most of both feature sets) | restructuring: loops→recursion, dispatch tables, helper splits |
+| `lines` | 10+ matching normalized lines with one unit | copied cores buried in padding |
 
 "Distinctive" is decided by the corpus, not assumed: a token counts only if
 few units use it (document frequency), and language-universal vocabulary
 (builtins, stdlib names, `"utf-8"`) never counts regardless — you would not
 grep for `open` to find a specific function.
+
+Repos choose their detectors (`cm detectors --disable lines` writes
+`.cm/config.json`), and writing a new one is a single class implementing
+`prepare/affinity/examine` — see the contract in
+[cm/detectors/base.py](cm/detectors/base.py). Future evidence providers
+(behavioral probes, dataflow shapes, sketch vectors) are drop-ins here, not
+core changes.
 
 Every flag prints its evidence — the shared tokens and matching line spans —
 so the review starts with the proof in hand:
@@ -282,12 +299,12 @@ set — the thing to grep before writing a new helper.
 
 ::file cm-plugin/.claude-plugin/plugin.json
 ::lang json
-::sha 7ae33b427d96
+::sha 1c70c9a4a48e
 ::lines 9
 ::content 9
 {
   "name": "cm",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "description": "Redundancy gate for agent writes: incremental codebase compiler (PROJECT.cm) plus a write interlock that blocks duplicate code with evidence — where it already lives, why it matches, how to resolve.",
   "author": {
     "name": "ContextManager"
@@ -339,6 +356,31 @@ Initialize the cm context manager in the current repository:
 3. Report what was installed (baseline stats, protocol location) and mention
    that from now on every Write/Edit is gated automatically: duplicates will
    be blocked with evidence until resolved or accepted.
+
+::endfile
+
+::file cm-plugin/commands/review.md
+::lang markdown
+::sha 37b868a9692e
+::lines 18
+::content 18
+---
+description: Work through pending cm review holds
+---
+
+Run `cm review` in the repository root with the Bash tool.
+
+- If it reports no pending holds: say so in one line.
+- Otherwise, for each hold: READ the cited existing unit at its file@lines
+  (never skip this), compare with the held unit, and decide:
+  1. Same behavior needed → rewrite the change to reuse/import the existing
+     unit instead.
+  2. Existing unit almost fits → extend/generalize the existing unit so one
+     copy serves both callers.
+  3. Genuinely different despite the resemblance → record it with the exact
+     command the hold prints: `cm accept <fp> --match <fp> --reason "..."`.
+- After resolving all holds, run `cm gate` and confirm it reports clean.
+- Summarize each decision and why in one line per hold.
 
 ::endfile
 
@@ -450,10 +492,10 @@ if __name__ == "__main__":
 
 ::file cm-plugin/skills/redundancy-gate/SKILL.md
 ::lang markdown
-::sha 4821835a623a
-::lines 69
+::sha 9153d269c5bf
+::lines 74
 ::doc cm — the review protocol
-::content 69
+::content 74
 ---
 name: redundancy-gate
 description: Resolve cm review holds and manage codebase redundancy. Use when a write is held with "REVIEW REQUIRED", when deciding whether to reuse existing code versus record an intentional similarity, or when working with PROJECT.cm, unit fingerprints, ::keys features, or the cm commands (gate, accept, audit, status, check).
@@ -490,10 +532,12 @@ Each flagged unit lists its evidence:
    - **Existing unit almost fits** → extend or generalize the *existing* unit
      in place so one copy serves both callers.
    - **Genuinely different despite the resemblance** (a mirror case, a
-     variant over a different interface) → record the decision:
-     `cm accept <fp> --reason "why this is intentionally separate"`.
-     The fp is printed next to each held unit; the ledger makes the review
-     final — it will never be asked again.
+     variant over a different interface) → record the decision with the exact
+     command the hold prints:
+     `cm accept <fp> --match <fp> --reason "why this is intentionally separate"`.
+     Decisions are pair-scoped: they cover this-unit-vs-that-unit only, so
+     the same unit resembling something *new* is still held. Editing either
+     unit changes its fingerprint and re-opens the question — by design.
 3. **Do not dodge the tripwire**: renaming identifiers or reshuffling lines
    does not work (fingerprints survive renames; shared tokens survive
    restructuring), and it defeats the purpose.
@@ -515,11 +559,14 @@ cheaper than a review round-trip.
 ## Commands
 
 ```
+cm review                 list pending holds with evidence and resolutions
 cm status                 is the baseline current; what changed
 cm gate [path]            recompile + screen changed units (the hook runs this)
-cm accept <fp> --reason   record a review decision in the ledger
+cm accept <fp> --match <fp> --reason   record a pair-scoped review decision
+cm ledger                 list recorded decisions and their reasons
 cm audit --limit 10       whole-tree resemblance audit
 cm check <file>           screen one file against the tree
+cm detectors              list or toggle tripwire detectors
 cm build --full           force a full recompile of PROJECT.cm
 ```
 
@@ -527,13 +574,13 @@ cm build --full           force a full recompile of PROJECT.cm
 
 ::file cm/__init__.py
 ::lang python
-::sha 1258e5a2f0f0
+::sha f65449bc54bd
 ::lines 4
 ::doc cm — compile a codebase into a context management artifact (PROJECT.cm).
 ::content 4
 """cm — compile a codebase into a context management artifact (PROJECT.cm)."""
 
-__version__ = "0.5.0"
+__version__ = "0.7.0"
 
 ::endfile
 
@@ -552,8 +599,8 @@ if __name__ == "__main__":
 
 ::file cm/cache.py
 ::lang python
-::sha 9c4aad15ac8e
-::lines 137
+::sha d52b43ef5c46
+::lines 156
 ::doc Incremental compile state: the .cm/ directory.
 ::imports __future__, gzip, json, model, os, pathlib
 ::unit function cm_dir @24-25 #c723586a
@@ -586,13 +633,20 @@ if __name__ == "__main__":
 ::unit function save_cache @103-115 #d414cc54
 ::sig save_cache(root: Path, result: ScanResult) -> None
 ::keys [".tmp", "6", "Path", "ScanResult", "_CACHE", "__version__", "cache.json.gz", "cm", "cm_dir", "compress", "dumps", "encode", "entry_from_record", "files", "get", "gzip", "json", "mkdir", "mtimes", "os", "path", "records", "replace", "utf-8", "write_bytes"]
-::unit function load_accepted @118-127 #0646b626
-::sig load_accepted(root: Path) -> set[str]
-::keys ["Path", "_ACCEPTED", "accepted", "add", "cm_dir", "is_file", "read_text", "set", "split", "splitlines", "str", "strip", "utf-8"]
-::unit function add_accepted @130-136 #536c0827
-::sig add_accepted(root: Path, fps: list[str], reason: str='') -> None
+::unit function load_accepted @118-135 #40a29586
+::sig load_accepted(root: Path) -> set[tuple[str, str]]
+::doc The ledger: reviewed (target_fp, match_fp) pairs. "*" = any match.
+::keys ["2", "Path", "_ACCEPTED", "accepted", "add", "cm_dir", "is_file", "len", "read_text", "set", "split", "splitlines", "str", "tuple", "utf-8"]
+::unit function accepted_covers @138-139 #a57f7e72
+::sig accepted_covers(accepted: set, target_fp: str, match_fp: str) -> bool
+::keys ["bool", "set", "str"]
+::unit function add_accepted @142-148 #fb31154c
+::sig add_accepted(root: Path, fps: list[str], reason: str='', match: str='*') -> None
 ::keys ["Path", "_ACCEPTED", "accepted", "cm_dir", "list", "mkdir", "open", "str", "utf-8", "write"]
-::content 137
+::unit function ledger_lines @151-155 #cd6f4636
+::sig ledger_lines(root: Path) -> list[str]
+::keys ["Path", "_ACCEPTED", "accepted", "cm_dir", "is_file", "list", "read_text", "splitlines", "str", "strip", "utf-8"]
+::content 156
 """Incremental compile state: the .cm/ directory.
 
 Holds the compile cache (per-file text, hashes, mtimes, and fully-analyzed
@@ -710,115 +764,140 @@ def save_cache(root: Path, result: ScanResult) -> None:
     os.replace(tmp, d / _CACHE)
 
 
-def load_accepted(root: Path) -> set[str]:
+def load_accepted(root: Path) -> set[tuple[str, str]]:
+    """The ledger: reviewed (target_fp, match_fp) pairs. "*" = any match.
+
+    A bare fp line (the pre-0.7 format) reads as a wildcard, so old ledgers
+    keep working. Entries expire naturally: editing either unit changes its
+    fingerprint, and the pair no longer covers the new resemblance.
+    """
     p = cm_dir(root) / _ACCEPTED
     if not p.is_file():
         return set()
     out = set()
     for line in p.read_text(encoding="utf-8").splitlines():
-        line = line.split("#", 1)[0].strip()
-        if line:
-            out.add(line)
+        parts = line.split("#", 1)[0].split()
+        if len(parts) == 1:
+            out.add((parts[0], "*"))
+        elif len(parts) >= 2:
+            out.add((parts[0], parts[1]))
     return out
 
 
-def add_accepted(root: Path, fps: list[str], reason: str = "") -> None:
+def accepted_covers(accepted: set, target_fp: str, match_fp: str) -> bool:
+    return (target_fp, "*") in accepted or (target_fp, match_fp) in accepted
+
+
+def add_accepted(root: Path, fps: list[str], reason: str = "", match: str = "*") -> None:
     d = cm_dir(root)
     d.mkdir(exist_ok=True)
     suffix = f"  # {reason}" if reason else ""
     with open(d / _ACCEPTED, "a", encoding="utf-8") as f:
         for fp in fps:
-            f.write(fp + suffix + "\n")
+            f.write(f"{fp} {match}{suffix}\n")
+
+
+def ledger_lines(root: Path) -> list[str]:
+    p = cm_dir(root) / _ACCEPTED
+    if not p.is_file():
+        return []
+    return [ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
 ::endfile
 
 ::file cm/cli.py
 ::lang python
-::sha 129d99b06f06
-::lines 618
+::sha aa63c12b0561
+::lines 694
 ::doc cm command line: build / check / audit / drift.
-::imports __future__, argparse, cache, cmfile, datetime, detectors, extract, ignore, json, model, pathlib, redundancy, scan, shutil, sys
-::unit function _corpus_stats @21-28 #ac3b090f
+::imports __future__, argparse, cache, cmfile, datetime, detectors, extract, ignore, json, model, pathlib, redundancy, review, scan, shutil, sys
+::unit function _corpus_stats @23-30 #ac3b090f
 ::sig _corpus_stats(records) -> dict
 ::keys ["dict", "files", "function", "functions", "kind", "len", "method", "raw_bytes", "size", "sum", "units"]
-::unit function _utc_now @31-33 #ebdd6a69
+::unit function _utc_now @33-35 #ebdd6a69
 ::sig _utc_now() -> str
 ::keys ["datetime", "isoformat", "now", "seconds", "str", "timezone", "utc"]
-::unit function _commit @36-44 #e5226df9
+::unit function _commit @38-46 #e5226df9
 ::sig _commit(root: Path, result, stats: dict, no_content: bool=False, output: str | None=None) -> Path
 ::doc Write PROJECT.cm and the cache: the new accepted baseline.
 ::keys ["PROJECT.cm", "Path", "_utc_now", "bool", "dict", "emit", "generated", "name", "project", "records", "root", "save_cache", "stats", "str", "utf-8", "write_text"]
-::unit function cmd_build @47-60 #a9331132
+::unit function cmd_build @49-62 #a9331132
 ::sig cmd_build(args) -> int
 ::keys ["):", "...", "8", "PROJECT.cm written ->", "Path", "_commit", "_corpus_stats", "analyzed", "binary", "cache_hits", "cached,", "changed", "files", "full", "functions", "functions)  raw", "incremental:", "int", "join", "len", "load_cache", "no_content", "output", "path", "print", "raw_bytes", "records", "resolve", "scan_tree", "skipped (", "skipped_binary", "skipped_large", "too large", "units"]
-::unit function cmd_status @63-81 #e7268336
+::unit function cmd_status @65-83 #e7268336
 ::sig cmd_status(args) -> int
 ::keys ["10", ">8", "PROJECT.cm", "PROJECT.cm is", "Path", "STALE \u2014 run 'cm build' or 'cm gate'", "added", "baseline:", "bool", "changed", "files | added", "int", "is_file", "len", "load_cache", "modified", "no baseline (.cm/ cache missing or stale) \u2014 run 'cm build' or 'cm init'", "path", "print", "records", "removed", "resolve", "scan_tree", "set", "sorted", "up to date"]
-::unit function _print_unit_report @84-98 #aa4e4873
+::unit function _print_unit_report @86-100 #aa4e4873
 ::sig _print_unit_report(rep: dict, out=None) -> None
 ::keys ["2", ">7", "IDENTICAL-STRUCTURE", "action", "dict", "exact_structural_dup", "file", "fp", "get", "join", "lines", "lines)", "match_lines", "matches", "overlap", "print", "reasons", "repr", "resembles", "shared", "shared tokens:", "signature", "snippet", "span", "stdout", "sys", "target_lines", "unit", "upper"]
-::unit function _summarize @101-105 #9ab16ce5
+::unit function _summarize @103-107 #9ab16ce5
 ::sig _summarize(reports: list[dict]) -> dict
 ::keys ["action", "dict", "list", "pass", "review", "trivial"]
-::unit function cmd_check @108-148 #70ebea40
+::unit function cmd_check @110-150 #70ebea40
 ::sig cmd_check(args) -> int
 ::keys ["(corpus:", "2", "CHECK", "Path", "Summary:", "Unit", "ValueError", "_print_unit_report", "_summarize", "action", "all_units", "as_posix", "class", "corpus_units", "dumps", "error: target is binary:", "error: target not found:", "extend", "files)", "int", "is_file", "join", "json", "kind", "len", "list", "load_cache", "load_enabled", "load_file", "pass", "pass,", "print", "records", "relative_to", "resolve", "review", "root", "scan_tree", "score_targets", "sorted", "stderr", "str", "summary", "sys", "targets", "to review,", "top", "trivial", "units", "units /"]
-::unit function cmd_audit @151-171 #2b70da18
+::unit function cmd_audit @153-173 #2b70da18
 ::sig cmd_audit(args) -> int
 ::keys ["2", "AUDIT", "No unit resembles another closely enough to review.", "Path", "Summary:", "_print_unit_report", "_summarize", "all_units", "dumps", "files)", "int", "json", "len", "limit", "load_cache", "load_enabled", "matches", "max", "overlap_lines", "pass", "pass,", "path", "print", "records", "requires_review", "resolve", "review", "root", "scan_tree", "score_targets", "scoreable units /", "shared_count", "sort", "str", "summary", "to review,", "top", "trivial", "units"]
-::unit function _changed_units @174-187 #fb750821
+::unit function _changed_units @176-189 #fb750821
 ::sig _changed_units(result, cache: dict) -> list[Unit]
 ::doc Scoreable units that are new or modified relative to the cached baseline.
 ::keys ["Unit", "dict", "extend", "fp", "get", "list", "path", "records", "scoreable", "set", "sha", "units"]
-::unit function _screen @190-193 #cf395a60
+::unit function _screen @192-206 #8a1cc4c6
 ::sig _screen(reports, accepted)
-::doc Units needing review, minus fingerprints already accepted in the ledger.
-::keys ["fp", "requires_review"]
-::unit function _print_block @196-205 #efe59555
+::doc Units needing review, minus resemblances the ledger already covers.
+::keys ["accepted_covers", "append", "fp", "matches", "reasons", "requires_review"]
+::unit function _print_block @209-220 #9a8813f2
 ::sig _print_block(headline, footer, blocking, out)
-::keys ["--reason \"...\"    #", "Read each cited unit, then decide: reuse it, extend it, or \u2014 if the resemblance is intentional \u2014 record the decision:", "_print_unit_report", "cm accept", "fp", "matches", "max", "overlap_lines", "print", "shared_count", "sorted", "unit"]
-::unit function _gate_run @208-255 #6fb6cb4e
+::keys ["--match", "--reason \"...\"    #", "2", "Read each cited unit, then decide: reuse it, extend it, or \u2014 if the resemblance is intentional \u2014 record the decision:", "_print_unit_report", "cm accept", "fp", "matches", "max", "overlap_lines", "print", "shared_count", "sorted", "unit", "vs"]
+::unit function _gate_run @223-272 #cba66a37
 ::sig _gate_run(root: Path, top: int, hook: bool) -> int
 ::doc The write interlock: recompile incrementally, screen what changed,
-::keys ["(files +", "/-", "2", "; baseline refreshed", "; baseline updated", "Baseline NOT updated; the gate will re-flag until resolved.", "Path", "_changed_units", "_commit", "_corpus_stats", "_print_block", "_screen", "all_units", "bool", "changed unit(s) screened", "cm gate:", "cm gate: REVIEW REQUIRED \u2014", "cm gate: baseline created (", "files,", "gate clean:", "gate clean: no changed units", "int", "len", "load_accepted", "load_cache", "load_enabled", "new/changed unit(s) screened clean and absorbed into the baseline", "path", "print", "records", "scan_tree", "score_targets", "stderr", "stdout", "sys", "unit(s) resemble code this project already has.", "units)"]
-::unit function cmd_gate @258-259 #29caf149
+::keys ["(files +", "/-", "2", "; baseline refreshed", "; baseline updated", "Baseline NOT updated; the gate will re-flag until resolved.", "Path", "_changed_units", "_commit", "_corpus_stats", "_print_block", "_screen", "all_units", "bool", "changed unit(s) screened", "clear_holds", "cm gate:", "cm gate: REVIEW REQUIRED \u2014", "cm gate: baseline created (", "files,", "gate", "gate clean:", "gate clean: no changed units", "int", "len", "load_accepted", "load_cache", "load_enabled", "new/changed unit(s) screened clean and absorbed into the baseline", "path", "print", "records", "save_holds", "scan_tree", "score_targets", "stderr", "stdout", "sys", "unit(s) resemble code this project already has. ('cm review' lists these holds.)", "units)"]
+::unit function cmd_gate @275-276 #29caf149
 ::sig cmd_gate(args) -> int
 ::keys ["Path", "_gate_run", "hook", "int", "path", "resolve", "top"]
-::unit function _proposed_content @262-284 #7de0d58b
+::unit function _proposed_content @279-301 #7de0d58b
 ::sig _proposed_content(path: Path, tool: str, tool_input: dict) -> str | None
 ::doc Model the post-tool content of a Write/Edit. None = cannot model: allow,
 ::keys ["Edit", "MultiEdit", "OSError", "Path", "Write", "content", "count", "dict", "edits", "get", "isinstance", "new_string", "old_string", "read_text", "replace", "replace_all", "str", "utf-8"]
-::unit function _precheck @287-323 #4cf53826
+::unit function _precheck @304-342 #28b9ecd7
 ::sig _precheck(root: Path, abspath: Path, proposed: str, top: int) -> int
 ::doc Score a proposed write before it reaches disk. 0 = allow, 2 = deny.
-::keys ["2", "IgnoreRules", "MAX_FILE_BYTES", "Path", "Revise the write to reuse/extend the cited unit, or accept first and retry.", "ValueError", "_print_block", "_screen", "as_posix", "cm precheck: REVIEW REQUIRED \u2014 the write was withheld.", "encode", "extract_units", "fp", "get", "ignored", "int", "len", "load", "load_accepted", "load_cache", "load_enabled", "path", "record_from_bytes", "records", "relative_to", "resolve", "scan_tree", "score_targets", "scoreable", "set", "stderr", "str", "sys", "unit(s) resemble code this project already has.", "units", "utf-8"]
-::unit function cmd_hook @326-351 #69ac34b7
+::keys ["2", "IgnoreRules", "MAX_FILE_BYTES", "Path", "Revise the write to reuse/extend the cited unit, or accept first and retry.", "ValueError", "_print_block", "_screen", "as_posix", "cm precheck: REVIEW REQUIRED \u2014 the write was withheld.", "encode", "extract_units", "fp", "get", "ignored", "int", "len", "load", "load_accepted", "load_cache", "load_enabled", "path", "precheck", "record_from_bytes", "records", "relative_to", "resolve", "save_holds", "scan_tree", "score_targets", "scoreable", "set", "stderr", "str", "sys", "unit(s) resemble code this project already has. ('cm review' lists these holds.)", "units", "utf-8"]
+::unit function cmd_hook @345-370 #69ac34b7
 ::sig cmd_hook(args) -> int
 ::doc Claude Code hook entry: reads the hook JSON on stdin.
 ::keys ["Path", "PreToolUse", "ValueError", "_gate_run", "_precheck", "_proposed_content", "cwd", "dict", "file_path", "find_root", "get", "hook_event_name", "int", "isinstance", "json", "loads", "notebook_path", "parent", "read", "stdin", "sys", "tool_input", "tool_name", "top", "{}"]
-::unit function cmd_accept @354-364 #b89ba7ab
+::unit function cmd_accept @373-388 #3ef59020
 ::sig cmd_accept(args) -> int
-::keys ["0123456789abcdef", "2", "8", "Path", "accepted", "add_accepted", "any", "append", "error:", "fingerprint(s); 'cm gate' will no longer block on them", "fps", "int", "is not a unit fingerprint (8 hex chars)", "len", "print", "reason", "resolve", "root", "stderr", "sys"]
-::unit function _write_protocol @387-401 #5582a96c
+::keys ["0123456789abcdef", "2", "8", "; recorded in the ledger", "Path", "accepted", "add_accepted", "against", "against any match", "any", "append", "error:", "error: --match", "fingerprint(s)", "fps", "int", "is not a unit fingerprint", "is not a unit fingerprint (8 hex chars)", "len", "match", "print", "reason", "resolve", "root", "stderr", "sys"]
+::unit function cmd_review @391-418 #7efcf1f6
+::sig cmd_review(args) -> int
+::keys ["--match", "--reason \"...\"", "2", "Path", "Resolve by reusing/extending the cited units (then re-run the write or 'cm gate'), or accept the pairs above.", "[ REVIEW]", "at", "dumps", "file", "fp", "get", "holds", "int", "join", "json", "len", "load_holds", "matches", "no pending holds", "pending hold(s) from", "precheck", "print", "reasons", "repr", "resembles", "resolve", "root", "seen", "shared", "shared tokens:", "signature", "source", "span", "to record as intentional:  cm accept", "unit", "\u2014 the write was withheld, nothing landed on disk"]
+::unit function cmd_ledger @421-429 #c326acef
+::sig cmd_ledger(args) -> int
+::keys ["Path", "accepted resemblances (target_fp match_fp  # reason):", "int", "ledger is empty", "ledger_lines", "print", "resolve", "root"]
+::unit function _write_protocol @452-466 #5582a96c
 ::sig _write_protocol(root: Path) -> str
 ::keys ["## cm \u2014 redundancy gate\n\nThis repo is compiled into PROJECT.cm (every file's functions, fingerprints,\nand algorithm skeletons). The goal is token efficiency: never rewrite what\nthe codebase already contains.\n\n- Writes are checked BEFORE they land: the precheck hook withholds writes\n  that resemble existing code, with the file untouched. After clean writes\n  land, `cm gate` reconciles the baseline incrementally.\n- If a write is held for REVIEW, stop and read the cited unit (file@lines;\n  the shared tokens explain the resemblance). Then decide: reuse it, extend\n  it, or record an intentional difference.\n- If the similarity is intentional, run `cm accept <fp>` and continue.\n- PROJECT.cm and the baseline update automatically when the gate passes.", "<!-- cm:protocol:begin -->", "<!-- cm:protocol:end -->", "AGENTS.md", "CLAUDE.md", "Path", "_PROTOCOL", "_PROTO_BEGIN", "_PROTO_END", "is_file", "partition", "protocol section written to existing", "protocol written to new CLAUDE.md", "read_text", "rstrip", "str", "utf-8", "write_text"]
-::unit function _install_hook @404-433 #1e03a913
+::unit function _install_hook @469-498 #1e03a913
 ::sig _install_hook(root: Path) -> str
 ::doc Install both write gates: PreToolUse denies duplicates before they reach
 ::keys ["\" -m cm hook", ".claude", "2", "Path", "PostToolUse", "PreToolUse", "SKIPPED hook install: .claude/settings.json is not valid JSON", "ValueError", "Write|Edit|MultiEdit", "any", "append", "cm", "cm gate --hook", "cm hook", "command", "dumps", "executable", "get", "hooks", "hooks already installed in .claude/settings.json", "hooks installed in .claude/settings.json (", "is_file", "join", "json", "loads", "matcher", "mkdir", "parent", "read_text", "remove", "setdefault", "settings.json", "shutil", "str", "sys", "type", "utf-8", "which", "write_text"]
-::unit function cmd_init @436-461 #0d116ae2
+::unit function cmd_init @501-526 #0d116ae2
 ::sig cmd_init(args) -> int
 ::keys ["# cm ignore rules (gitignore syntax). Defaults already exclude VCS\n# dirs, caches, binaries, .cm/ state, and *.cm outputs.", ".cmignore", ".cmignore created", "PROJECT.cm + .cm/ baseline built (", "Path", "_commit", "_corpus_stats", "_install_hook", "_write_protocol", "agent hook not installed (rerun with --hooks to gate writes automatically)", "append", "cm", "cm init:", "files", "files,", "hooks", "int", "is_file", "note: 'cm' not on PATH \u2014 install with: pip install -e <cm repo>  (or pipx)", "path", "print", "records", "resolve", "scan_tree", "shutil", "units", "units)", "utf-8", "which", "write_text"]
-::unit function cmd_detectors @464-484 #b07ce185
+::unit function cmd_detectors @529-549 #b07ce185
 ::sig cmd_detectors(args) -> int
 ::keys ["(known:", "12", "2", "OFF", "Path", "REGISTRY", "__doc__", "__module__", "detectors for", "disable", "enable", "enabled_names", "error: unknown detector(s):", "int", "items", "join", "modules", "on", "print", "resolve", "root", "set_enabled", "splitlines", "stderr", "strip", "sys"]
-::unit function cmd_drift @487-541 #4fa66113
+::unit function cmd_drift @552-606 #4fa66113
 ::sig cmd_drift(args) -> int
 ::keys ["10", "2", "8", "<8", "DRIFT vs", "Path", "add", "append", "cm", "covered", "dumps", "end", "error:", "fp", "int", "is_file", "json", "kind", "len", "lines", "lines across", "lines_to_sync", "manifest", "missing", "missing_units", "name", "not found (run 'cm build' first)", "parse", "partition", "path", "print", "qualname", "read", "read_text", "set", "sorted", "splitlines", "stale", "stale,", "stale_units", "start", "startswith", "stderr", "stdin", "strip", "sum", "sys", "to sync:", "unit", "units", "units in context,", "utf-8"]
-::unit function main @544-617 #f583a470
+::unit function main @609-693 #8b8a7c9a
 ::sig main(argv=None) -> int
-::keys ["--cm", "--disable", "--enable", "--full", "--hook", "--hooks", "--json", "--limit", "--no-content", "--output", "--reason", "--root", "--top", "--version", "-o", "20", "3", "ArgumentParser", "Claude Code hook entry (hook JSON on stdin): PreToolUse withholds resembling writes pre-disk, PostToolUse reconciles via the gate", "Compile a codebase into a context management artifact (PROJECT.cm) and police redundancy with information-theoretic checks.", "NAME", "PROJECT.cm", "[experimental] context-vs-PROJECT.cm divergence", "__version__", "accept", "add_argument", "add_parser", "add_subparsers", "agent-hook mode: silent on success, findings to stderr, exit 2 on hold", "also install the Claude Code PostToolUse write gate", "argparse", "audit", "build", "check", "cm", "cmd", "cmd_accept", "cmd_audit", "cmd_build", "cmd_check", "cmd_detectors", "cmd_drift", "cmd_gate", "cmd_hook", "cmd_init", "cmd_status", "compile the tree into PROJECT.cm (incremental)", "corpus root (default: cwd)", "detectors", "drift", "file of section refs the context holds (fp8 | path | path#qualname@fp8), '-' for stdin", "files treated as 'new code'", "fn", "fp", "fps", "gate", "hook", "ignore the cache, recompile everything", "index only: omit file contents from the .cm", "init", "install cm into a repo: baseline + agent protocol", "int", "is the baseline current? what changed?", "list or toggle tripwire detectors for a repo"]
-::content 618
+::keys ["--cm", "--disable", "--enable", "--full", "--hook", "--hooks", "--json", "--limit", "--match", "--no-content", "--output", "--reason", "--root", "--top", "--version", "-o", "20", "3", "ArgumentParser", "Claude Code hook entry (hook JSON on stdin): PreToolUse withholds resembling writes pre-disk, PostToolUse reconciles via the gate", "Compile a codebase into a context management artifact (PROJECT.cm) and police redundancy with information-theoretic checks.", "NAME", "PROJECT.cm", "[experimental] context-vs-PROJECT.cm divergence", "__version__", "accept", "add_argument", "add_parser", "add_subparsers", "agent-hook mode: silent on success, findings to stderr, exit 2 on hold", "also install the Claude Code PostToolUse write gate", "argparse", "audit", "build", "check", "cm", "cmd", "cmd_accept", "cmd_audit", "cmd_build", "cmd_check", "cmd_detectors", "cmd_drift", "cmd_gate", "cmd_hook", "cmd_init", "cmd_ledger", "cmd_review", "cmd_status", "compile the tree into PROJECT.cm (incremental)", "corpus root (default: cwd)", "detectors", "drift", "file of section refs the context holds (fp8 | path | path#qualname@fp8), '-' for stdin", "files treated as 'new code'", "fn", "fp", "fps", "gate", "hook", "ignore the cache, recompile everything", "index only: omit file contents from the .cm", "init", "install cm into a repo: baseline + agent protocol"]
+::content 694
 """cm command line: build / check / audit / drift."""
 from __future__ import annotations
 
@@ -829,13 +908,15 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .cache import add_accepted, find_root, load_accepted, load_cache, save_cache
+from .cache import (accepted_covers, add_accepted, find_root, ledger_lines,
+                    load_accepted, load_cache, save_cache)
 from .cmfile import emit, parse
 from .detectors import REGISTRY, enabled_names, load_enabled, set_enabled
 from .extract import extract_units
 from .ignore import IgnoreRules
 from .model import Unit
 from .redundancy import requires_review, score_targets
+from .review import clear_holds, load_holds, save_holds
 from .scan import MAX_FILE_BYTES, load_file, record_from_bytes, scan_tree
 
 
@@ -1009,9 +1090,20 @@ def _changed_units(result, cache: dict) -> list[Unit]:
 
 
 def _screen(reports, accepted):
-    """Units needing review, minus fingerprints already accepted in the ledger."""
-    return [rep for rep in reports
-            if requires_review(rep) and rep["fp"] not in accepted]
+    """Units needing review, minus resemblances the ledger already covers.
+
+    Pair-scoped: an accepted (target, match) pair stops blocking that pair
+    only — the same unit resembling something new still gets held.
+    """
+    held = []
+    for rep in reports:
+        if not requires_review(rep):
+            continue
+        uncovered = [m for m in rep["matches"]
+                     if m["reasons"] and not accepted_covers(accepted, rep["fp"], m["fp"])]
+        if uncovered:
+            held.append({**rep, "matches": uncovered})
+    return held
 
 
 def _print_block(headline, footer, blocking, out):
@@ -1022,7 +1114,9 @@ def _print_block(headline, footer, blocking, out):
     print("Read each cited unit, then decide: reuse it, extend it, or — if the "
           "resemblance is intentional — record the decision:", file=out)
     for rep in blocking:
-        print(f'  cm accept {rep["fp"]} --reason "..."    # {rep["unit"]}', file=out)
+        for m in rep["matches"][:2]:
+            print(f'  cm accept {rep["fp"]} --match {m["fp"]} --reason "..."'
+                  f'    # {rep["unit"]} vs {m["unit"]}', file=out)
     print(footer, file=out)
 
 
@@ -1057,13 +1151,15 @@ def _gate_run(root: Path, top: int, hook: bool) -> int:
     blocking = _screen(reports, load_accepted(root))
 
     if blocking:
+        save_holds(root, "gate", blocking)
         _print_block(
             f"cm gate: REVIEW REQUIRED — {len(blocking)} unit(s) resemble "
-            f"code this project already has.",
+            f"code this project already has. ('cm review' lists these holds.)",
             "Baseline NOT updated; the gate will re-flag until resolved.",
             blocking, out)
         return 2 if hook else 1
 
+    clear_holds(root)
     _commit(root, result, _corpus_stats(result.records))
     if hook:
         # exit-0 stdout is visible in the verbose transcript: leave a trace of
@@ -1135,9 +1231,11 @@ def _precheck(root: Path, abspath: Path, proposed: str, top: int) -> int:
     reports = score_targets(targets, corpus, top=top, detectors=load_enabled(root))
     blocking = _screen(reports, load_accepted(root))
     if blocking:
+        save_holds(root, "precheck", blocking)
         _print_block(
             f"cm precheck: REVIEW REQUIRED — the write was withheld. "
-            f"{len(blocking)} unit(s) resemble code this project already has.",
+            f"{len(blocking)} unit(s) resemble code this project already has. "
+            f"('cm review' lists these holds.)",
             "Revise the write to reuse/extend the cited unit, or accept first and retry.",
             blocking, sys.stderr)
         return 2
@@ -1180,8 +1278,54 @@ def cmd_accept(args) -> int:
             print(f"error: {fp!r} is not a unit fingerprint (8 hex chars)", file=sys.stderr)
             return 2
         fps.append(fp)
-    add_accepted(root, fps, args.reason)
-    print(f"accepted {len(fps)} fingerprint(s); 'cm gate' will no longer block on them")
+    if args.match != "*" and (len(args.match) != 8
+                              or any(c not in "0123456789abcdef" for c in args.match)):
+        print(f"error: --match {args.match!r} is not a unit fingerprint", file=sys.stderr)
+        return 2
+    add_accepted(root, fps, args.reason, args.match)
+    scope = f"against {args.match}" if args.match != "*" else "against any match"
+    print(f"accepted {len(fps)} fingerprint(s) {scope}; recorded in the ledger")
+    return 0
+
+
+def cmd_review(args) -> int:
+    root = Path(args.root).resolve()
+    data = load_holds(root)
+    holds = data.get("holds", [])
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 1 if holds else 0
+    if not holds:
+        print("no pending holds")
+        return 0
+    withheld = data.get("source") == "precheck"
+    print(f"{len(holds)} pending hold(s) from {data.get('source', '?')} "
+          f"at {data.get('seen', '?')}"
+          + (" — the write was withheld, nothing landed on disk" if withheld else ""))
+    for h in holds:
+        print(f"\n[ REVIEW] {h['signature'] or h['unit']}  "
+              f"{h['file']}@{h['span'][0]}-{h['span'][1]}  #{h['fp']}")
+        for m in h["matches"]:
+            print(f"    resembles {m['unit']}  {m['file']}@{m['span'][0]}-{m['span'][1]}")
+            for reason in m["reasons"]:
+                print(f"       - {reason}")
+            if m["shared"]:
+                print("       shared tokens: " + ", ".join(repr(s) for s in m["shared"]))
+            print(f'       to record as intentional:  cm accept {h["fp"]} '
+                  f'--match {m["fp"]} --reason "..."')
+    print("\nResolve by reusing/extending the cited units (then re-run the write "
+          "or 'cm gate'), or accept the pairs above.")
+    return 1
+
+
+def cmd_ledger(args) -> int:
+    lines = ledger_lines(Path(args.root).resolve())
+    if not lines:
+        print("ledger is empty")
+        return 0
+    print("accepted resemblances (target_fp match_fp  # reason):")
+    for line in lines:
+        print(f"  {line}")
     return 0
 
 
@@ -1395,11 +1539,22 @@ def main(argv=None) -> int:
     hk.add_argument("--top", type=int, default=3)
     hk.set_defaults(fn=cmd_hook)
 
-    ac = sub.add_parser("accept", help="mark flagged fingerprints as reviewed-and-intentional")
+    ac = sub.add_parser("accept", help="record a review decision in the ledger")
     ac.add_argument("fps", nargs="+", metavar="fp")
     ac.add_argument("--root", default=".")
-    ac.add_argument("--reason", default="", help="why the similarity is intentional (recorded)")
+    ac.add_argument("--match", default="*", metavar="fp",
+                    help="scope the decision to one matched unit (default: any match)")
+    ac.add_argument("--reason", default="", help="why the resemblance is intentional (recorded)")
     ac.set_defaults(fn=cmd_accept)
+
+    rv = sub.add_parser("review", help="list pending holds with evidence and resolutions")
+    rv.add_argument("--root", default=".")
+    rv.add_argument("--json", action="store_true")
+    rv.set_defaults(fn=cmd_review)
+
+    lg = sub.add_parser("ledger", help="list recorded review decisions")
+    lg.add_argument("--root", default=".")
+    lg.set_defaults(fn=cmd_ledger)
 
     ini = sub.add_parser("init", help="install cm into a repo: baseline + agent protocol")
     ini.add_argument("path", nargs="?", default=".")
@@ -2026,49 +2181,65 @@ class SharedTokensDetector(Detector):
 
 ::file cm/extract.py
 ::lang python
-::sha a09ce5526b93
-::lines 266
-::doc Per-language unit extraction: files -> functions/methods/classes with spans and docs.
+::sha 17724d3d89c2
+::lines 290
+::doc The Index's language adapters: files -> units with spans, docs, features.
 ::imports __future__, ast, bisect, features, hashlib, model, normalize, re
-::unit function lang_for @38-40 #890bad12
+::unit function adapter @49-55 #d30d1f66
+::sig adapter(*langs)
+::doc Register a language adapter (see module docstring).
+::keys ["ADAPTERS"]
+::unit function lang_for @58-60 #890bad12
 ::sig lang_for(path: str) -> str
 ::keys [".bash", ".c", ".cc", ".cfg", ".cjs", ".cpp", ".cs", ".css", ".go", ".h", ".hpp", ".html", ".ini", ".java", ".js", ".json", ".jsx", ".md", ".mjs", ".ps1", ".py", ".pyi", ".rs", ".rst", ".sh", ".sql", ".toml", ".ts", ".tsx", ".txt", ".yaml", ".yml", "LANG_BY_EXT", "cpp", "csharp", "css", "get", "go", "html", "java", "javascript", "json", "lower", "markdown", "powershell", "python", "rfind", "rust", "shell", "sql", "str", "text", "toml", "typescript", "yaml"]
-::unit function _finish @43-53 #cb92d884
+::unit function _finish @63-73 #cb92d884
 ::sig _finish(unit: Unit, lang: str, path: str) -> Unit
 ::keys ["64", "8", "Unit", "_MIN_NORM_CHARS", "body", "bound", "class", "encode", "fp", "hashlib", "hexdigest", "kind", "lang", "len", "norm", "norm_source", "path", "scoreable", "sha256", "str", "trivial", "utf-8"]
-::unit function _py_signature @58-65 #a49a8c0c
+::unit function _py_signature @78-85 #a49a8c0c
 ::sig _py_signature(node) -> str
 ::keys ["(...)", "->", "Exception", "args", "ast", "getattr", "name", "returns", "str", "unparse"]
-::unit function _first_doc_line @68-70 #00ac040c
+::unit function _first_doc_line @88-90 #00ac040c
 ::sig _first_doc_line(node) -> str
 ::keys ["200", "ast", "get_docstring", "splitlines", "str", "strip"]
-::unit function _extract_python @73-117 #dec7355a
+::unit function _extract_python @93-138 #a54a4043
 ::sig _extract_python(rec: FileRecord) -> None
-::keys ["(unparseable python)", "20", "AsyncFunctionDef", "ClassDef", "FileRecord", "FunctionDef", "Import", "ImportFrom", "SyntaxError", "Unit", "_first_doc_line", "_py_signature", "append", "ast", "body", "bound_from_ast", "class", "decorator_list", "doc", "end_lineno", "extend", "file", "function", "imports", "isinstance", "join", "lineno", "lines", "max", "method", "min", "module", "name", "names", "parse", "path", "py_features", "py_module_consts", "set", "sorted", "split", "str", "text", "units", "walk"]
-::unit function _brace_span @132-141 #1cc551a5
+::keys ["(unparseable python)", "20", "AsyncFunctionDef", "ClassDef", "FileRecord", "FunctionDef", "Import", "ImportFrom", "SyntaxError", "Unit", "_first_doc_line", "_py_signature", "adapter", "append", "ast", "body", "bound_from_ast", "class", "decorator_list", "doc", "end_lineno", "extend", "file", "function", "imports", "isinstance", "join", "lineno", "lines", "max", "method", "min", "module", "name", "names", "parse", "path", "py_features", "py_module_consts", "python", "set", "sorted", "split", "str", "text", "units", "walk"]
+::unit function _brace_span @153-162 #1cc551a5
 ::sig _brace_span(masked: str, open_idx: int) -> int
 ::keys ["int", "len", "range", "str"]
-::unit function _expr_end @144-167 #6baa999f
+::unit function _expr_end @165-188 #6baa999f
 ::sig _expr_end(masked: str, start: int) -> int
 ::doc End of an expression-bodied arrow: first depth-0 ';', blank line, or EOF.
 ::keys ["int", "len", "startswith", "str"]
-::unit function _js_doc_above @170-190 #a6c4299b
+::unit function _js_doc_above @191-211 #a6c4299b
 ::sig _js_doc_above(lines: list[str], start_line: int) -> str
 ::keys ["*/", "/*", "//", "2", "200", "endswith", "int", "list", "lstrip", "rstrip", "startswith", "str", "strip"]
-::unit function _extract_js @193-245 #8a0e38c8
+::unit function _extract_js @214-267 #b6881fcd
 ::sig _extract_js(rec: FileRecord) -> None
-::keys ["(?m)^[ \\t]*(?:export\\s+)?(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:async\\s+)?(?:function\\b\\s*\\*?|(?:\\([^()\\n]*\\)|[A-Za-z_$][\\w$]*)\\s*=>)", "(?m)^[ \\t]*(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?function\\s*\\*?\\s*([A-Za-z_$][\\w$]*)\\s*\\(", "(?m)^[ \\t]*(?:export\\s+)?(?:default\\s+)?class\\s+([A-Za-z_$][\\w$]*)", "(?m)^\\s*import\\b[^;\\n]*?from\\s+['\\\"]([^'\\\"]+)['\\\"]|require\\(\\s*['\\\"]([^'\\\"]+)['\\\"]\\s*\\)", "160", "2", "20", "=>", "FileRecord", "Unit", "_JS_ARROW", "_JS_CLASS", "_JS_FUNC", "_JS_IMPORT", "_brace_span", "_expr_end", "_js_doc_above", "add", "append", "bisect", "bisect_right", "bound_names", "class", "end", "endswith", "enumerate", "filter", "find", "finditer", "frozenset", "function", "group", "imports", "int", "join", "js_features", "js_module_consts", "lang", "len", "mask_code", "rstrip", "set", "sort", "sorted", "split", "start", "str", "strip", "text", "tuple", "units"]
-::unit function extract_units @250-265 #6aca8e05
+::keys ["(?m)^[ \\t]*(?:export\\s+)?(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:async\\s+)?(?:function\\b\\s*\\*?|(?:\\([^()\\n]*\\)|[A-Za-z_$][\\w$]*)\\s*=>)", "(?m)^[ \\t]*(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?function\\s*\\*?\\s*([A-Za-z_$][\\w$]*)\\s*\\(", "(?m)^[ \\t]*(?:export\\s+)?(?:default\\s+)?class\\s+([A-Za-z_$][\\w$]*)", "(?m)^\\s*import\\b[^;\\n]*?from\\s+['\\\"]([^'\\\"]+)['\\\"]|require\\(\\s*['\\\"]([^'\\\"]+)['\\\"]\\s*\\)", "160", "2", "20", "=>", "FileRecord", "Unit", "_JS_ARROW", "_JS_CLASS", "_JS_FUNC", "_JS_IMPORT", "_brace_span", "_expr_end", "_js_doc_above", "adapter", "add", "append", "bisect", "bisect_right", "bound_names", "class", "end", "endswith", "enumerate", "filter", "find", "finditer", "frozenset", "function", "group", "imports", "int", "javascript", "join", "js_features", "js_module_consts", "lang", "len", "mask_code", "rstrip", "set", "sort", "sorted", "split", "start", "str", "strip", "text", "tuple", "typescript", "units"]
+::unit function _extract_markdown @272-277 #efd99c39
+::sig _extract_markdown(rec: FileRecord) -> None
+::keys ["200", "FileRecord", "adapter", "doc", "lstrip", "markdown", "split", "startswith", "strip", "text"]
+::unit function extract_units @280-289 #53121b84
 ::sig extract_units(rec: FileRecord) -> None
-::doc Populate rec.units (and doc/imports) in place.
-::keys ["200", "FileRecord", "Unit", "_FILE_UNIT_LANGS", "_extract_js", "_extract_python", "_finish", "append", "cpp", "csharp", "css", "doc", "file", "file)", "go", "java", "javascript", "lang", "lines", "lstrip", "markdown", "max", "path", "powershell", "python", "rust", "shell", "split", "sql", "startswith", "strip", "text", "typescript", "units"]
-::content 266
-"""Per-language unit extraction: files -> functions/methods/classes with spans and docs.
+::doc Populate rec.units (and doc/imports) in place via the language adapter.
+::keys ["ADAPTERS", "FileRecord", "Unit", "_FILE_UNIT_LANGS", "_finish", "append", "cpp", "csharp", "css", "file", "file)", "get", "go", "java", "lang", "lines", "max", "path", "powershell", "rust", "shell", "sql", "text", "units"]
+::content 290
+"""The Index's language adapters: files -> units with spans, docs, features.
 
+Adapters register per language and are self-contained — adding a language is
+one function that fills rec.units (and optionally rec.doc/rec.imports),
+registered with the decorator:
+
+    @adapter("go")
+    def _extract_go(rec: FileRecord) -> None:
+        rec.units.append(Unit(...))   # spans, body; bound/feats if derivable
+
+The engine finishes every unit uniformly (normalization, fingerprint,
+trivial marking), so an adapter only supplies boundaries and raw facts.
 Python uses the stdlib ast (exact). JavaScript/TypeScript use a regex +
-brace-matching pass over masked text (good-enough v0; tree-sitter is the
-upgrade path). Other code languages fall back to one file-level unit so
-redundancy detection still works at file granularity.
+brace-matching pass over masked text. Code languages without an adapter fall
+back to one file-level unit, so the tripwire still works at file granularity.
 """
 from __future__ import annotations
 
@@ -2098,6 +2269,17 @@ LANG_BY_EXT = {
 _FILE_UNIT_LANGS = {"c", "cpp", "csharp", "go", "rust", "java", "shell", "powershell", "sql", "css"}
 
 _MIN_NORM_CHARS = 64  # below this a unit is "trivial": too small to score honestly
+
+ADAPTERS: dict[str, callable] = {}
+
+
+def adapter(*langs):
+    """Register a language adapter (see module docstring)."""
+    def deco(fn):
+        for lang in langs:
+            ADAPTERS[lang] = fn
+        return fn
+    return deco
 
 
 def lang_for(path: str) -> str:
@@ -2135,6 +2317,7 @@ def _first_doc_line(node) -> str:
     return doc.strip().splitlines()[0][:200] if doc else ""
 
 
+@adapter("python")
 def _extract_python(rec: FileRecord) -> None:
     try:
         tree = ast.parse(rec.text)
@@ -2255,6 +2438,7 @@ def _js_doc_above(lines: list[str], start_line: int) -> str:
     return ""
 
 
+@adapter("javascript", "typescript")
 def _extract_js(rec: FileRecord) -> None:
     masked = mask_code(rec.text, rec.lang)
     lines = rec.text.split("\n")
@@ -2312,20 +2496,22 @@ def _extract_js(rec: FileRecord) -> None:
 
 # ---------------------------------------------------------------- dispatch
 
+@adapter("markdown")
+def _extract_markdown(rec: FileRecord) -> None:
+    for line in rec.text.split("\n"):
+        if line.startswith("#"):
+            rec.doc = line.lstrip("#").strip()[:200]
+            break
+
+
 def extract_units(rec: FileRecord) -> None:
-    """Populate rec.units (and doc/imports) in place."""
-    if rec.lang == "python":
-        _extract_python(rec)
-    elif rec.lang in ("javascript", "typescript"):
-        _extract_js(rec)
+    """Populate rec.units (and doc/imports) in place via the language adapter."""
+    fn = ADAPTERS.get(rec.lang)
+    if fn is not None:
+        fn(rec)
     elif rec.lang in _FILE_UNIT_LANGS:
         rec.units.append(Unit("file", rec.path, rec.path, f"({rec.lang} file)",
                               1, max(rec.lines, 1), body=rec.text))
-    elif rec.lang == "markdown":
-        for line in rec.text.split("\n"):
-            if line.startswith("#"):
-                rec.doc = line.lstrip("#").strip()[:200]
-                break
     for u in rec.units:
         _finish(u, rec.lang, rec.path)
 
@@ -3054,21 +3240,21 @@ def norm_source(text: str, lang: str, bound: frozenset | None = None) -> str:
 
 ::file cm/redundancy.py
 ::lang python
-::sha 45b2e2ef87d2
-::lines 84
+::sha 915f51602525
+::lines 85
 ::doc The tripwire engine: run every enabled detector, compose the evidence.
 ::imports __future__, detectors, model
-::unit function _compose_match @20-34 #3a0ec25e
+::unit function _compose_match @20-35 #9d5db725
 ::sig _compose_match(cand: Unit, target: Unit, evidence: list) -> dict
-::keys ["3", "Unit", "any", "blocks", "detector", "dict", "end", "evidence", "exact_structural_dup", "feats", "file", "fingerprint", "len", "lines", "list", "min", "next", "overlap", "overlap_coeff", "overlap_lines", "path", "qualname", "reason", "reasons", "round", "shared", "shared_count", "span", "start", "sum", "tokens", "unit"]
-::unit function score_targets @37-79 #c70f0e4a
+::keys ["3", "Unit", "any", "blocks", "detector", "dict", "end", "evidence", "exact_structural_dup", "feats", "file", "fingerprint", "fp", "len", "lines", "list", "min", "next", "overlap", "overlap_coeff", "overlap_lines", "path", "qualname", "reason", "reasons", "round", "shared", "shared_count", "span", "start", "sum", "tokens", "unit"]
+::unit function score_targets @38-80 #c70f0e4a
 ::sig score_targets(targets: list[Unit], corpus: list[Unit], top: int=3, detectors: list | None=None) -> list[dict]
 ::doc Screen each target unit against the corpus. One report dict per unit;
 ::keys ["3", "8", "Unit", "_TOP_EXAMINE", "_compose_match", "affinity", "append", "bool", "dict", "end", "examine", "file", "fp", "int", "kind", "len", "list", "load_enabled", "max", "overlap_lines", "pass", "path", "prepare", "qualname", "reasons", "review", "scoreable", "shared_count", "signature", "sort", "sorted", "span", "start", "sum", "trivial", "unit", "update"]
-::unit function requires_review @82-83 #f45a8236
+::unit function requires_review @83-84 #f45a8236
 ::sig requires_review(rep: dict) -> bool
 ::keys ["action", "bool", "dict", "get", "review"]
-::content 84
+::content 85
 """The tripwire engine: run every enabled detector, compose the evidence.
 
 Design law: deterministic discrete features — grep beats semantic search.
@@ -3095,6 +3281,7 @@ def _compose_match(cand: Unit, target: Unit, evidence: list) -> dict:
              if target.feats and cand.feats else 0.0)
     return {
         "file": cand.path, "unit": cand.qualname, "span": [cand.start, cand.end],
+        "fp": cand.fp,
         "exact_structural_dup": any(e.detector == "fingerprint" for e in evidence),
         "reasons": [e.reason for e in evidence],
         "evidence": [{"detector": e.detector, "reason": e.reason,
@@ -3152,6 +3339,87 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3,
 
 def requires_review(rep: dict) -> bool:
     return rep.get("action") == "review"
+
+::endfile
+
+::file cm/review.py
+::lang python
+::sha 4f7e10bf7be5
+::lines 60
+::doc The Review module: pending holds and their lifecycle.
+::imports __future__, cache, datetime, json, pathlib
+::unit function _compact @22-31 #3166213f
+::sig _compact(rep: dict) -> dict
+::keys ["dict", "file", "fp", "get", "matches", "overlap_lines", "reasons", "shared", "signature", "span", "unit"]
+::unit function save_holds @34-43 #d7eaf9c2
+::sig save_holds(root: Path, source: str, blocking: list[dict]) -> None
+::keys ["2", "Path", "_HOLDS", "_compact", "cm_dir", "datetime", "dict", "dumps", "holds", "holds.json", "isoformat", "json", "list", "mkdir", "now", "seconds", "seen", "source", "str", "timezone", "utc", "utf-8", "write_text"]
+::unit function load_holds @46-53 #6fbb9eef
+::sig load_holds(root: Path) -> dict
+::keys ["OSError", "Path", "ValueError", "_HOLDS", "cm_dir", "dict", "holds.json", "is_file", "json", "loads", "read_text", "utf-8"]
+::unit function clear_holds @56-59 #d2f47df1
+::sig clear_holds(root: Path) -> None
+::keys ["Path", "_HOLDS", "cm_dir", "holds.json", "is_file", "unlink"]
+::content 60
+"""The Review module: pending holds and their lifecycle.
+
+When the gate or precheck holds a write, the holds are persisted to
+`.cm/holds.json` in a machine-readable form, so a review can happen any time
+after the hook fired — `cm review` lists what is outstanding, with the
+evidence and the exact resolution commands. Holds clear themselves: a
+successful gate commit means nothing is outstanding (rewritten units change
+fingerprint; accepted pairs stop blocking), so the file always reflects the
+latest screening, never a backlog of stale ones.
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .cache import cm_dir
+
+_HOLDS = "holds.json"
+
+
+def _compact(rep: dict) -> dict:
+    return {
+        "unit": rep["unit"], "file": rep["file"], "span": rep["span"],
+        "fp": rep["fp"], "signature": rep.get("signature", ""),
+        "matches": [{
+            "unit": m["unit"], "file": m["file"], "span": m["span"], "fp": m["fp"],
+            "reasons": m["reasons"], "shared": m["shared"],
+            "overlap_lines": m["overlap_lines"],
+        } for m in rep["matches"] if m["reasons"]],
+    }
+
+
+def save_holds(root: Path, source: str, blocking: list[dict]) -> None:
+    d = cm_dir(root)
+    d.mkdir(exist_ok=True)
+    payload = {
+        "source": source,  # "gate" (write landed) or "precheck" (write withheld)
+        "seen": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "holds": [_compact(rep) for rep in blocking],
+    }
+    (d / _HOLDS).write_text(json.dumps(payload, indent=2) + "\n",
+                            encoding="utf-8", newline="\n")
+
+
+def load_holds(root: Path) -> dict:
+    p = cm_dir(root) / _HOLDS
+    if not p.is_file():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {}
+
+
+def clear_holds(root: Path) -> None:
+    p = cm_dir(root) / _HOLDS
+    if p.is_file():
+        p.unlink()
 
 ::endfile
 
@@ -3286,7 +3554,7 @@ def scan_tree(root: Path, rules: IgnoreRules | None = None,
 
 ::file pyproject.toml
 ::lang toml
-::sha 10e1af8cfeab
+::sha 9d6b8c559ecd
 ::lines 17
 ::content 17
 [build-system]
@@ -3295,7 +3563,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cm-compiler"
-version = "0.5.0"
+version = "0.7.0"
 description = "Compile a codebase into a context management artifact (PROJECT.cm) with information-theoretic redundancy checks."
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -4961,6 +5229,159 @@ class TestTripwire(unittest.TestCase):
         m = best_match(rep)
         self.assertTrue(m["reasons"])  # a stated rule, never a bare score
         self.assertTrue(m["shared"] or m["overlap_lines"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+::endfile
+
+::file tests/test_review.py
+::lang python
+::sha 356b4346283a
+::lines 102
+::doc Review + Ledger modules: pair-scoped accepts, holds lifecycle, cm review.
+::imports cm.cache, cm.extract, cm.review, cm.scan, pathlib, tempfile, tests.test_incremental, tests.test_redundancy, unittest
+::unit function unit_fp @14-15 #d54a58e1
+::sig unit_fp(path: Path, rel: str) -> str
+::keys ["Path", "fp", "load_file", "str", "units"]
+::unit class TestPairScopedLedger @18-30 #2d5a657b
+::sig class TestPairScopedLedger
+::unit method TestPairScopedLedger.test_parse_and_covers @19-30 #7b0d559d
+::sig test_parse_and_covers(self)
+::keys [".cm", "Path", "TemporaryDirectory", "aaaaaaaa", "aaaaaaaa  # old-format wildcard\nbbbbbbbb cccccccc  # pair-scoped", "accepted", "accepted_covers", "anything", "assertFalse", "assertTrue", "bbbbbbbb", "cccccccc", "dddddddd", "load_accepted", "mkdir", "tempfile", "utf-8", "write_text"]
+::unit class TestReviewFlow @33-90 #654c0dad
+::sig class TestReviewFlow
+::unit method TestReviewFlow.setUp @34-39 #698f24b5
+::sig setUp(self)
+::keys ["ORIGINAL", "Path", "TemporaryDirectory", "UNRELATED", "a.py", "c.py", "gate", "name", "root", "run_cli", "str", "tempfile", "tmp", "utf-8", "write_text"]
+::unit method TestReviewFlow.tearDown @41-42 #566b60f1
+::sig tearDown(self)
+::keys ["cleanup", "tmp"]
+::unit method TestReviewFlow.hold_pair @44-48 #d3d2a339
+::sig hold_pair(self)
+::keys ["INTERFACE_VARIANT", "a.py", "b.py", "gate", "root", "run_cli", "str", "unit_fp", "utf-8", "write_text"]
+::unit method TestReviewFlow.test_block_persists_holds_and_review_reports_them @50-56 #d4db027e
+::sig test_block_persists_holds_and_review_reports_them(self)
+::keys ["--root", "assertEqual", "fp", "gate", "hold_pair", "holds", "load_holds", "matches", "review", "root", "run_cli", "source", "str"]
+::unit method TestReviewFlow.test_wrong_pair_does_not_unblock @58-61 #3c776ba5
+::sig test_wrong_pair_does_not_unblock(self)
+::keys ["--match", "--root", "accept", "assertEqual", "deadbeef", "gate", "hold_pair", "root", "run_cli", "str"]
+::unit method TestReviewFlow.test_right_pair_unblocks_and_clears_holds @63-69 #ca5368f3
+::sig test_right_pair_unblocks_and_clears_holds(self)
+::keys ["--match", "--reason", "--root", "accept", "assertEqual", "gate", "hold_pair", "interface variant is intentional", "load_holds", "review", "root", "run_cli", "str"]
+::unit method TestReviewFlow.test_accepted_pair_still_blocks_new_resemblance @71-79 #a24b36dd
+::sig test_accepted_pair_still_blocks_new_resemblance(self)
+::keys ["--match", "--root", "INTERFACE_VARIANT", "UNRELATED", "accept", "assertEqual", "b.py", "gate", "hold_pair", "parse_footer_line", "parse_header_line", "replace", "root", "run_cli", "str", "utf-8", "write_text"]
+::unit method TestReviewFlow.test_wildcard_accept_still_works @81-84 #f2019d9c
+::sig test_wildcard_accept_still_works(self)
+::keys ["--root", "accept", "assertEqual", "gate", "hold_pair", "root", "run_cli", "str"]
+::unit method TestReviewFlow.test_ledger_lists_decisions @86-90 #821ac60e
+::sig test_ledger_lists_decisions(self)
+::keys ["--match", "--reason", "--root", "accept", "assertEqual", "documented variant", "hold_pair", "ledger", "root", "run_cli", "str"]
+::unit class TestAdapterRegistry @93-97 #8ece4caf
+::sig class TestAdapterRegistry
+::unit method TestAdapterRegistry.test_builtin_adapters_registered @94-97 #1c7d2338
+::sig test_builtin_adapters_registered(self)
+::keys ["ADAPTERS", "assertLessEqual", "javascript", "markdown", "python", "set", "typescript"]
+::content 102
+"""Review + Ledger modules: pair-scoped accepts, holds lifecycle, cm review."""
+import unittest
+from pathlib import Path
+
+from cm.cache import accepted_covers, load_accepted
+from cm.review import load_holds
+from cm.scan import load_file
+from tests.test_incremental import run_cli
+from tests.test_redundancy import INTERFACE_VARIANT, ORIGINAL, UNRELATED
+
+import tempfile
+
+
+def unit_fp(path: Path, rel: str) -> str:
+    return load_file(path, rel).units[0].fp
+
+
+class TestPairScopedLedger(unittest.TestCase):
+    def test_parse_and_covers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".cm").mkdir()
+            (root / ".cm" / "accepted").write_text(
+                "aaaaaaaa  # old-format wildcard\n"
+                "bbbbbbbb cccccccc  # pair-scoped\n", encoding="utf-8")
+            acc = load_accepted(root)
+            self.assertTrue(accepted_covers(acc, "aaaaaaaa", "anything"))
+            self.assertTrue(accepted_covers(acc, "bbbbbbbb", "cccccccc"))
+            self.assertFalse(accepted_covers(acc, "bbbbbbbb", "dddddddd"))
+            self.assertFalse(accepted_covers(acc, "cccccccc", "bbbbbbbb"))
+
+
+class TestReviewFlow(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "a.py").write_text(ORIGINAL, encoding="utf-8")
+        (self.root / "c.py").write_text(UNRELATED, encoding="utf-8")
+        run_cli("gate", str(self.root))  # baseline
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def hold_pair(self):
+        (self.root / "b.py").write_text(INTERFACE_VARIANT, encoding="utf-8")
+        run_cli("gate", str(self.root))
+        return (unit_fp(self.root / "b.py", "b.py"),
+                unit_fp(self.root / "a.py", "a.py"))
+
+    def test_block_persists_holds_and_review_reports_them(self):
+        tfp, mfp = self.hold_pair()
+        data = load_holds(self.root)
+        self.assertEqual(data["source"], "gate")
+        self.assertEqual(data["holds"][0]["fp"], tfp)
+        self.assertEqual(data["holds"][0]["matches"][0]["fp"], mfp)
+        self.assertEqual(run_cli("review", "--root", str(self.root)), 1)
+
+    def test_wrong_pair_does_not_unblock(self):
+        tfp, _ = self.hold_pair()
+        run_cli("accept", tfp, "--match", "deadbeef", "--root", str(self.root))
+        self.assertEqual(run_cli("gate", str(self.root)), 1)
+
+    def test_right_pair_unblocks_and_clears_holds(self):
+        tfp, mfp = self.hold_pair()
+        run_cli("accept", tfp, "--match", mfp, "--root", str(self.root),
+                "--reason", "interface variant is intentional")
+        self.assertEqual(run_cli("gate", str(self.root)), 0)
+        self.assertEqual(load_holds(self.root), {})
+        self.assertEqual(run_cli("review", "--root", str(self.root)), 0)
+
+    def test_accepted_pair_still_blocks_new_resemblance(self):
+        # accept b-vs-a, then make b ALSO a copy of c: must hold again
+        tfp, mfp = self.hold_pair()
+        run_cli("accept", tfp, "--match", mfp, "--root", str(self.root))
+        run_cli("gate", str(self.root))
+        (self.root / "b.py").write_text(
+            INTERFACE_VARIANT + "\n\n" + UNRELATED.replace(
+                "parse_header_line", "parse_footer_line"), encoding="utf-8")
+        self.assertEqual(run_cli("gate", str(self.root)), 1)
+
+    def test_wildcard_accept_still_works(self):
+        tfp, _ = self.hold_pair()
+        run_cli("accept", tfp, "--root", str(self.root))
+        self.assertEqual(run_cli("gate", str(self.root)), 0)
+
+    def test_ledger_lists_decisions(self):
+        tfp, mfp = self.hold_pair()
+        run_cli("accept", tfp, "--match", mfp, "--root", str(self.root),
+                "--reason", "documented variant")
+        self.assertEqual(run_cli("ledger", "--root", str(self.root)), 0)
+
+
+class TestAdapterRegistry(unittest.TestCase):
+    def test_builtin_adapters_registered(self):
+        from cm.extract import ADAPTERS
+        self.assertLessEqual({"python", "javascript", "typescript", "markdown"},
+                             set(ADAPTERS))
 
 
 if __name__ == "__main__":

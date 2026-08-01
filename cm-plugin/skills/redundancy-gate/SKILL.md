@@ -34,10 +34,12 @@ Each flagged unit lists its evidence:
    - **Existing unit almost fits** → extend or generalize the *existing* unit
      in place so one copy serves both callers.
    - **Genuinely different despite the resemblance** (a mirror case, a
-     variant over a different interface) → record the decision:
-     `cm accept <fp> --reason "why this is intentionally separate"`.
-     The fp is printed next to each held unit; the ledger makes the review
-     final — it will never be asked again.
+     variant over a different interface) → record the decision with the exact
+     command the hold prints:
+     `cm accept <fp> --match <fp> --reason "why this is intentionally separate"`.
+     Decisions are pair-scoped: they cover this-unit-vs-that-unit only, so
+     the same unit resembling something *new* is still held. Editing either
+     unit changes its fingerprint and re-opens the question — by design.
 3. **Do not dodge the tripwire**: renaming identifiers or reshuffling lines
    does not work (fingerprints survive renames; shared tokens survive
    restructuring), and it defeats the purpose.
@@ -59,10 +61,13 @@ cheaper than a review round-trip.
 ## Commands
 
 ```
+cm review                 list pending holds with evidence and resolutions
 cm status                 is the baseline current; what changed
 cm gate [path]            recompile + screen changed units (the hook runs this)
-cm accept <fp> --reason   record a review decision in the ledger
+cm accept <fp> --match <fp> --reason   record a pair-scoped review decision
+cm ledger                 list recorded decisions and their reasons
 cm audit --limit 10       whole-tree resemblance audit
 cm check <file>           screen one file against the tree
+cm detectors              list or toggle tripwire detectors
 cm build --full           force a full recompile of PROJECT.cm
 ```

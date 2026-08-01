@@ -24,6 +24,7 @@ def _compose_match(cand: Unit, target: Unit, evidence: list) -> dict:
              if target.feats and cand.feats else 0.0)
     return {
         "file": cand.path, "unit": cand.qualname, "span": [cand.start, cand.end],
+        "fp": cand.fp,
         "exact_structural_dup": any(e.detector == "fingerprint" for e in evidence),
         "reasons": [e.reason for e in evidence],
         "evidence": [{"detector": e.detector, "reason": e.reason,
