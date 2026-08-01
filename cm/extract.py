@@ -12,10 +12,9 @@ import bisect
 import hashlib
 import re
 
+from .features import js_features, js_module_consts, py_features, py_module_consts
 from .model import FileRecord, Unit
 from .normalize import bound_from_ast, bound_names, mask_code, norm_source
-from .skeleton import (js_algo, js_literals, js_module_consts, py_algo,
-                       py_literals, py_module_consts)
 
 LANG_BY_EXT = {
     ".py": "python", ".pyi": "python",
@@ -92,6 +91,7 @@ def _extract_python(rec: FileRecord) -> None:
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                bound = bound_from_ast(node)
                 rec.units.append(Unit(
                     kind="method" if prefix else "function",
                     name=node.name, qualname=prefix + node.name,
@@ -99,9 +99,8 @@ def _extract_python(rec: FileRecord) -> None:
                     start=start, end=node.end_lineno,
                     doc=_first_doc_line(node),
                     body="\n".join(lines[start - 1:node.end_lineno]),
-                    bound=bound_from_ast(node),
-                    algo=py_algo(node, node.name),
-                    lits=py_literals(node, module_consts),
+                    bound=bound,
+                    feats=py_features(node, bound, module_consts),
                 ))
             elif isinstance(node, ast.ClassDef):
                 start = min([node.lineno] + [d.lineno for d in node.decorator_list])
@@ -215,12 +214,12 @@ def _extract_js(rec: FileRecord) -> None:
         body = "\n".join(lines[s - 1:e])
         masked_body = "\n".join(masked_lines[s - 1:e])
         sig = body.split("\n", 1)[0].strip()[:160]
+        bound = bound_names(body, rec.lang)
         rec.units.append(Unit(kind=kind, name=name, qualname=name, signature=sig,
                               start=s, end=e, doc=_js_doc_above(lines, s), body=body,
-                              bound=bound_names(body, rec.lang),
-                              algo=js_algo(masked_body, name) if kind == "function" else "",
-                              lits=js_literals(body, module_consts) if kind == "function"
-                              else frozenset()))
+                              bound=bound,
+                              feats=js_features(body, masked_body, bound, module_consts)
+                              if kind == "function" else frozenset()))
 
     for m in _JS_FUNC.finditer(masked):
         ob = masked.find("{", m.end() - 1)

@@ -11,7 +11,7 @@ Both directions matter. A detector that catches everything is useless.
 """
 import unittest
 
-from cm.redundancy import score_targets, verdict
+from cm.redundancy import requires_review, score_targets
 from tests.test_extract import make_record
 
 SOURCE = '''import re
@@ -344,55 +344,55 @@ def corpus():
     return units_of("ignore.py", SOURCE) + units_of("util.py", FILLER)
 
 
-def worst_verdict(src, name):
-    """Strongest verdict across the units of a candidate file."""
+def worst_report(src, name):
+    """The report most in need of review across the units of a candidate file."""
     reports = score_targets(units_of(name, src), corpus())
-    order = {"novel": 0, "overlap": 1, "duplicate": 2}
-    best, rep = "novel", None
-    for r in reports:
-        v = verdict(r, 0.55, 0.80)
-        if order[v] > order[best]:
-            best, rep = v, r
-    return best, rep
+    order = {"trivial": 0, "pass": 1, "review": 2}
+    return max(reports, key=lambda r: order[r["action"]], default=None)
+
+
+def flagged_against(rep, unit):
+    return next((m for m in rep["matches"] if m["unit"] == unit and m["reasons"]), None)
 
 
 class TestDisguisedClonesCaught(unittest.TestCase):
-    def test_every_disguise_is_flagged_duplicate(self):
+    def test_every_disguise_is_flagged_for_review(self):
         for name, src in CLONES.items():
             with self.subTest(disguise=name):
-                v, rep = worst_verdict(src, f"clone_{name}.py")
-                self.assertEqual(v, "duplicate", f"{name} evaded detection")
-                self.assertEqual(rep["escalated"]["unit"], "_glob_to_regex")
+                rep = worst_report(src, f"clone_{name}.py")
+                self.assertTrue(requires_review(rep), f"{name} evaded detection")
+                self.assertIsNotNone(flagged_against(rep, "_glob_to_regex"))
 
     def test_hoisted_constants_still_attribute_literals(self):
         # constants moved to module scope must still count as the unit's
-        v, rep = worst_verdict(CLONE_HOISTED_CONSTS, "clone_hoisted.py")
-        self.assertEqual(v, "duplicate")
-        self.assertGreaterEqual(rep["escalated"]["shared_rare_literals"], 3)
+        rep = worst_report(CLONE_HOISTED_CONSTS, "clone_hoisted.py")
+        m = flagged_against(rep, "_glob_to_regex")
+        self.assertGreaterEqual(m["shared_count"], 3)
 
-    def test_restructured_clone_found_outside_top_score_candidates(self):
-        # the recursive rewrite scores poorly on compression; it must still be
-        # examined via the evidence channels
-        _, rep = worst_verdict(CLONE_RECURSIVE, "clone_rec.py")
-        self.assertLess(rep["best_pair"], 0.80)
-        self.assertIsNotNone(rep["escalated"])
+    def test_restructured_clone_carries_token_evidence(self):
+        # the recursive rewrite shares no line structure; the shared
+        # distinctive tokens are what must convict it
+        rep = worst_report(CLONE_RECURSIVE, "clone_rec.py")
+        m = flagged_against(rep, "_glob_to_regex")
+        self.assertGreaterEqual(m["shared_count"], 3)
+        self.assertIn("(?:.*/)?", m["shared"])
 
 
 class TestNovelCodeAllowed(unittest.TestCase):
-    def test_controls_are_not_flagged_duplicate(self):
+    def test_controls_are_not_flagged(self):
         for name, src in CONTROLS.items():
             with self.subTest(control=name):
-                v, _ = worst_verdict(src, f"ctrl_{name}.py")
-                self.assertNotEqual(v, "duplicate", f"false positive on {name}")
+                rep = worst_report(src, f"ctrl_{name}.py")
+                self.assertFalse(requires_review(rep), f"false positive on {name}")
 
-    def test_same_genre_scanner_stays_novel(self):
+    def test_same_genre_scanner_stays_clean(self):
         # a different string scanner is the sharpest false-positive risk
-        v, _ = worst_verdict(CONTROL_SEMVER, "ctrl_semver.py")
-        self.assertEqual(v, "novel")
+        rep = worst_report(CONTROL_SEMVER, "ctrl_semver.py")
+        self.assertEqual(rep["action"], "pass")
 
-    def test_common_literals_do_not_trigger_escalation(self):
-        _, rep = worst_verdict(CONTROL_SHARED_IDIOM, "ctrl_idiom.py")
-        self.assertIsNone(rep["escalated"] if rep else None)
+    def test_common_literals_carry_no_weight(self):
+        rep = worst_report(CONTROL_SHARED_IDIOM, "ctrl_idiom.py")
+        self.assertFalse(requires_review(rep))
 
 
 if __name__ == "__main__":

@@ -58,7 +58,8 @@ class TestCmFileRoundTrip(unittest.TestCase):
             self.assertEqual(f.sha, rec.sha)
             self.assertEqual(f.content, rec.text, f"content mismatch for {rec.path}")
             self.assertEqual([u.fp for u in f.units], [u.fp for u in rec.units])
-            self.assertEqual([u.algo for u in f.units], [u.algo for u in rec.units])
+            self.assertEqual([u.keys for u in f.units],
+                             [sorted(u.feats) for u in rec.units])
             self.assertEqual([(u.start, u.end) for u in f.units],
                              [(u.start, u.end) for u in rec.units])
 

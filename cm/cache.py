@@ -40,9 +40,9 @@ def _unit_to_dict(u: Unit) -> dict:
     return {
         "kind": u.kind, "name": u.name, "qualname": u.qualname,
         "signature": u.signature, "start": u.start, "end": u.end,
-        "doc": u.doc, "norm": u.norm, "fp": u.fp, "algo": u.algo,
+        "doc": u.doc, "norm": u.norm, "fp": u.fp,
         "scoreable": u.scoreable, "trivial": u.trivial, "bound": sorted(u.bound),
-        "lits": sorted(u.lits),
+        "feats": sorted(u.feats),
     }
 
 
@@ -51,10 +51,10 @@ def _unit_from_dict(d: dict, lines: list[str], path: str, lang: str) -> Unit:
         kind=d["kind"], name=d["name"], qualname=d["qualname"],
         signature=d["signature"], start=d["start"], end=d["end"],
         doc=d["doc"], body="\n".join(lines[d["start"] - 1:d["end"]]),
-        norm=d["norm"], fp=d["fp"], algo=d.get("algo", ""),
+        norm=d["norm"], fp=d["fp"],
         scoreable=d["scoreable"], trivial=d["trivial"],
         path=path, lang=lang, bound=frozenset(d["bound"]),
-        lits=frozenset(d.get("lits", ())),
+        feats=frozenset(d.get("feats", ())),
     )
 
 

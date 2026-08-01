@@ -42,7 +42,7 @@ class TestGateHook(unittest.TestCase):
             # root discovery must walk up from the edited file's directory
             proc = run_hook({"tool_input": {"file_path": str(root / "sub" / "b.py")}})
         self.assertEqual(proc.returncode, 2)
-        self.assertIn("BLOCKED", proc.stderr)
+        self.assertIn("REVIEW REQUIRED", proc.stderr)
         self.assertIn("aggregate_metrics", proc.stderr)
 
     def test_clean_write_passes(self):
@@ -69,7 +69,7 @@ class TestPrecheck(unittest.TestCase):
             proc = run_hook(pre_payload("Write", target, content=PURE_RENAME))
             existed = target.exists()
         self.assertEqual(proc.returncode, 2)
-        self.assertIn("DENIED", proc.stderr)
+        self.assertIn("REVIEW REQUIRED", proc.stderr)
         self.assertIn("aggregate_metrics", proc.stderr)
         self.assertFalse(existed)  # nothing ever reached disk
 
@@ -92,7 +92,7 @@ class TestPrecheck(unittest.TestCase):
         with repo(baseline=True) as root:
             proc = run_hook(pre_payload("Write", root / "b.py", content=PADDED_CLONE))
         self.assertEqual(proc.returncode, 2)
-        self.assertIn("PARTIAL-CLONE", proc.stderr)
+        self.assertIn("REVIEW REQUIRED", proc.stderr)
         self.assertIn("aggregate_metrics", proc.stderr)
 
     def test_unmatchable_edit_allowed(self):

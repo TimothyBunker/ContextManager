@@ -57,7 +57,7 @@ class TestIncrementalScan(unittest.TestCase):
             self.assertEqual([u.fp for u in fresh.units], [u.fp for u in cached.units])
             self.assertEqual([u.norm for u in fresh.units], [u.norm for u in cached.units])
             self.assertEqual([u.body for u in fresh.units], [u.body for u in cached.units])
-            self.assertEqual([u.algo for u in fresh.units], [u.algo for u in cached.units])
+            self.assertEqual([u.feats for u in fresh.units], [u.feats for u in cached.units])
 
 
 class TestGateFlow(unittest.TestCase):

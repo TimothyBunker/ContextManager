@@ -15,18 +15,19 @@ declared, so content can safely contain `::`.
     ::unit function scan_tree @14-52 #a1b2c3d4   (#fp = structural fingerprint)
     ::sig scan_tree(root, rules) -> ScanResult
     ::doc Walk the codebase honoring .cmignore.
-    ::algo cfg==,for{if{cnt}},ret an=append:2,ignored:2,... (algorithm skeleton)
+    ::keys ["IgnoreRules", "cmignore", "os.walk", ...]   (discrete features, greppable)
     ::content 140
     ...140 lines verbatim...
     ::endfile
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 from .model import FileRecord
 
-FORMAT_VERSION = "0.2"
+FORMAT_VERSION = "0.3"
 
 
 def emit(meta: dict, records: list[FileRecord], include_content: bool = True) -> str:
@@ -54,8 +55,8 @@ def emit(meta: dict, records: list[FileRecord], include_content: bool = True) ->
                 out.append(f"::sig {u.signature}")
             if u.doc:
                 out.append(f"::doc {u.doc}")
-            if u.algo:
-                out.append(f"::algo {u.algo}")
+            if u.feats:
+                out.append("::keys " + json.dumps(sorted(u.feats)))
         if include_content:
             lines = rec.text.split("\n")
             out.append(f"::content {len(lines)}")
@@ -74,7 +75,7 @@ class CmUnit:
     fp: str
     signature: str = ""
     doc: str = ""
-    algo: str = ""
+    keys: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -140,8 +141,11 @@ def parse(text: str) -> tuple[dict, list[CmFile]]:
                 raise CmParseError(f"line {i}: bad ::unit line {rest!r}")
         elif directive == "sig" and cur.units:
             cur.units[-1].signature = rest
-        elif directive == "algo" and cur.units:
-            cur.units[-1].algo = rest
+        elif directive == "keys" and cur.units:
+            try:
+                cur.units[-1].keys = list(json.loads(rest))
+            except ValueError:
+                raise CmParseError(f"line {i}: bad ::keys payload")
         elif directive == "doc":
             if cur.units:
                 cur.units[-1].doc = rest

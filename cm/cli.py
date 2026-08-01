@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import lzma
 import shutil
 import sys
 from pathlib import Path
@@ -14,31 +13,18 @@ from .cmfile import emit, parse
 from .extract import extract_units
 from .ignore import IgnoreRules
 from .model import Unit
-from .normalize import norm_source
-from .redundancy import score_targets, standalone_bits, verdict
+from .redundancy import requires_review, score_targets
 from .scan import MAX_FILE_BYTES, load_file, record_from_bytes, scan_tree
 
-_LZMA_EMPTY = len(lzma.compress(b""))
-_STATS_FULL_MAX = 4_000_000  # above this many raw bytes, gate skips corpus compression
 
-
-def _corpus_stats(records, light: bool = False) -> dict:
+def _corpus_stats(records) -> dict:
     units = [u for r in records for u in r.units]
-    stats = {
+    return {
         "files": len(records),
         "units": len(units),
         "functions": sum(1 for u in units if u.kind in ("function", "method")),
         "raw_bytes": sum(r.size for r in records),
     }
-    if light:
-        return stats
-    norms = [norm_source(r.text, r.lang) for r in records]
-    joined = "\n".join(norms).encode("utf-8")
-    info_bits = max(0, (len(lzma.compress(joined)) - _LZMA_EMPTY) * 8)
-    per_file = sum(max(8, (len(lzma.compress(n.encode("utf-8"))) - _LZMA_EMPTY) * 8) for n in norms)
-    redundancy = max(0.0, 1.0 - info_bits / per_file) if per_file else 0.0
-    stats.update(info_bits=info_bits, structural_redundancy=round(redundancy, 3))
-    return stats
 
 
 def _utc_now() -> str:
@@ -66,7 +52,6 @@ def cmd_build(args) -> int:
     print(f"PROJECT.cm written -> {out_path}")
     print(f"  files {stats['files']}  units {stats['units']} "
           f"({stats['functions']} functions)  raw {stats['raw_bytes']:,} B")
-    print(f"  info {stats['info_bits']:,} bits  structural redundancy {stats['structural_redundancy']:.0%}")
     print(f"  incremental: {result.cache_hits} cached, {len(result.changed)} analyzed")
     for label, items in (("binary", result.skipped_binary), ("too large", result.skipped_large)):
         if items:
@@ -95,41 +80,27 @@ def cmd_status(args) -> int:
     return 1 if stale else 0
 
 
-def _print_unit_report(rep: dict, warn: float, fail: float, out=None) -> None:
+def _print_unit_report(rep: dict, out=None) -> None:
     out = out or sys.stdout
-    v = "trivial" if rep["trivial"] else verdict(rep, warn, fail)
-    print(f"[{v.upper():>9} {rep['redundancy']:.2f}] {rep['signature'] or rep['unit']}"
-          f"  {rep['file']}@{rep['span'][0]}-{rep['span'][1]}", file=out)
-    if rep["trivial"]:
-        return
-    print(f"            standalone {rep['standalone_bits']:,} bits, "
-          f"marginal {rep['marginal_bits']:,} bits, wasted {rep['wasted_bits']:,} bits", file=out)
-    esc = rep.get("escalated")
-    if esc:
-        print(f"            PARTIAL-CLONE escalation: {esc['reason']} vs "
-              f"{esc['unit']}  {esc['file']} — padding around a copied core "
-              f"does not lower this signal", file=out)
+    print(f"[{rep['action'].upper():>7}] {rep['signature'] or rep['unit']}"
+          f"  {rep['file']}@{rep['span'][0]}-{rep['span'][1]}  #{rep['fp']}", file=out)
     for m in rep.get("matches", []):
-        tag = " EXACT-STRUCTURAL-DUP" if m["exact_structural_dup"] else ""
-        sim = m.get("algo_similarity")
-        algotxt = f"  algo-sim {sim:.2f}" if sim is not None else ""
-        print(f"    -> {m['score']:.2f} vs {m['unit']}  {m['file']}@{m['span'][0]}-{m['span'][1]}"
-              f"  token-sim {m['token_similarity']:.2f}{algotxt}{tag}", file=out)
-        ad = m.get("anchor_diff")
-        if ad:
-            here = ", ".join(ad["only_target"]) or "-"
-            there = ", ".join(ad["only_match"]) or "-"
-            print(f"       anchors only here: {here} | only there: {there}", file=out)
+        tag = "  IDENTICAL-STRUCTURE" if m["exact_structural_dup"] else ""
+        print(f"    resembles {m['unit']}  {m['file']}@{m['span'][0]}-{m['span'][1]}{tag}", file=out)
+        for reason in m["reasons"]:
+            print(f"       - {reason}", file=out)
+        if m["shared"]:
+            print("       shared tokens: " + ", ".join(repr(s) for s in m["shared"]), file=out)
         for o in m["overlap"][:2]:
-            print(f"       overlap {rep['file']}:{o['target_lines'][0]}-{o['target_lines'][1]}"
+            print(f"       lines {rep['file']}:{o['target_lines'][0]}-{o['target_lines'][1]}"
                   f" ~ {m['file']}:{o['match_lines'][0]}-{o['match_lines'][1]}"
                   f"  ({o['lines']} lines)  {o['snippet']}", file=out)
 
 
-def _summarize(reports: list[dict], warn: float, fail: float) -> dict:
-    counts = {"duplicate": 0, "overlap": 0, "novel": 0, "trivial": 0}
+def _summarize(reports: list[dict]) -> dict:
+    counts = {"review": 0, "pass": 0, "trivial": 0}
     for rep in reports:
-        counts["trivial" if rep["trivial"] else verdict(rep, warn, fail)] += 1
+        counts[rep["action"]] += 1
     return counts
 
 
@@ -158,22 +129,21 @@ def cmd_check(args) -> int:
 
     scoreables = [u for u in target_units if u.kind != "class"]
     reports = score_targets(scoreables, corpus, top=args.top)
-    counts = _summarize(reports, args.warn, args.fail)
+    counts = _summarize(reports)
 
     if args.json:
         print(json.dumps({
             "root": str(root), "targets": sorted(targets_abs),
-            "thresholds": {"warn": args.warn, "fail": args.fail},
             "corpus_units": len(corpus), "units": reports, "summary": counts,
         }, indent=2))
     else:
         print(f"CHECK {', '.join(args.targets)}  "
               f"(corpus: {len(corpus)} units / {len(corpus_scan.records)} files)\n")
-        for rep in sorted(reports, key=lambda r: -r["redundancy"]):
-            _print_unit_report(rep, args.warn, args.fail)
-        print(f"\nSummary: {counts['duplicate']} duplicate, {counts['overlap']} overlap, "
-              f"{counts['novel']} novel, {counts['trivial']} trivial")
-    return 1 if counts["duplicate"] else 0
+        for rep in sorted(reports, key=lambda r: r["action"] != "review"):
+            _print_unit_report(rep)
+        print(f"\nSummary: {counts['review']} to review, {counts['pass']} pass, "
+              f"{counts['trivial']} trivial")
+    return 1 if counts["review"] else 0
 
 
 def cmd_audit(args) -> int:
@@ -181,24 +151,21 @@ def cmd_audit(args) -> int:
     result = scan_tree(root, cache=load_cache(root))
     units = result.all_units(scoreable_only=True)
     reports = score_targets(units, units, top=args.top)
-    # rank by wasted information, not ratio: a large half-duplicated function
-    # costs the project more than two tiny structurally-identical helpers
-    flagged = [r for r in reports
-               if not r["trivial"] and verdict(r, args.warn, args.fail) != "novel"]
-    flagged.sort(key=lambda r: -r["wasted_bits"])
-    counts = _summarize(reports, args.warn, args.fail)
+    flagged = [r for r in reports if requires_review(r)]
+    flagged.sort(key=lambda r: -max(
+        (m["shared_count"] + m["overlap_lines"] for m in r["matches"]), default=0))
+    counts = _summarize(reports)
 
     if args.json:
         print(json.dumps({"root": str(root), "units": reports, "summary": counts}, indent=2))
         return 0
     print(f"AUDIT {root}  ({len(units)} scoreable units / {len(result.records)} files)\n")
     if not flagged:
-        print(f"No unit pair exceeds warn threshold {args.warn:.2f}. "
-              f"Corpus is structurally lean.")
+        print("No unit resembles another closely enough to review.")
     for rep in flagged[:args.limit]:
-        _print_unit_report(rep, args.warn, args.fail)
-    print(f"\nSummary: {counts['duplicate']} duplicate, {counts['overlap']} overlap, "
-          f"{counts['novel']} novel, {counts['trivial']} trivial")
+        _print_unit_report(rep)
+    print(f"\nSummary: {counts['review']} to review, {counts['pass']} pass, "
+          f"{counts['trivial']} trivial")
     return 0
 
 
@@ -218,41 +185,33 @@ def _changed_units(result, cache: dict) -> list[Unit]:
     return targets
 
 
-def _screen(reports, accepted, warn, fail):
-    """Split reports into (blocking duplicates, non-blocking overlaps)."""
-    blocking, overlaps = [], []
-    for rep in reports:
-        if rep["trivial"] or rep["fp"] in accepted:
-            continue
-        v = verdict(rep, warn, fail)
-        if v == "duplicate":
-            blocking.append(rep)
-        elif v == "overlap":
-            overlaps.append(rep)
-    return blocking, overlaps
+def _screen(reports, accepted):
+    """Units needing review, minus fingerprints already accepted in the ledger."""
+    return [rep for rep in reports
+            if requires_review(rep) and rep["fp"] not in accepted]
 
 
-def _print_block(headline, footer, blocking, warn, fail, out):
+def _print_block(headline, footer, blocking, out):
     print(headline, file=out)
-    for rep in sorted(blocking, key=lambda r: -r["wasted_bits"]):
-        _print_unit_report(rep, warn, fail, out=out)
-    print("Investigate each match above (read the cited unit). Then either "
-          "reuse/extend it, or — if the similarity is intentional — run:", file=out)
+    for rep in sorted(blocking, key=lambda r: -max(
+            (m["shared_count"] + m["overlap_lines"] for m in r["matches"]), default=0)):
+        _print_unit_report(rep, out=out)
+    print("Read each cited unit, then decide: reuse it, extend it, or — if the "
+          "resemblance is intentional — record the decision:", file=out)
     for rep in blocking:
         print(f'  cm accept {rep["fp"]} --reason "..."    # {rep["unit"]}', file=out)
     print(footer, file=out)
 
 
-def _gate_run(root: Path, warn: float, fail: float, top: int, hook: bool) -> int:
-    """The write interlock: recompile incrementally, score what changed,
-    block (exit nonzero) on unreviewed duplicates, else commit the new baseline."""
+def _gate_run(root: Path, top: int, hook: bool) -> int:
+    """The write interlock: recompile incrementally, screen what changed,
+    hold (exit nonzero) anything needing review, else commit the new baseline."""
     out = sys.stderr if hook else sys.stdout
     cache = load_cache(root)
     result = scan_tree(root, cache=cache)
-    light = sum(r.size for r in result.records) > _STATS_FULL_MAX
 
     if not cache:
-        _commit(root, result, _corpus_stats(result.records, light))
+        _commit(root, result, _corpus_stats(result.records))
         if not hook:
             print(f"cm gate: baseline created ({len(result.records)} files, "
                   f"{len(result.all_units())} units)")
@@ -265,38 +224,36 @@ def _gate_run(root: Path, warn: float, fail: float, top: int, hook: bool) -> int
 
     targets = _changed_units(result, cache)
     if not targets:
-        _commit(root, result, _corpus_stats(result.records, light))
+        _commit(root, result, _corpus_stats(result.records))
         if not hook:
             print(f"gate clean: no changed units{delta}; baseline refreshed")
         return 0
 
     reports = score_targets(targets, result.all_units(scoreable_only=True), top=top)
-    blocking, overlaps = _screen(reports, load_accepted(root), warn, fail)
+    blocking = _screen(reports, load_accepted(root))
 
     if blocking:
         _print_block(
-            f"cm gate BLOCKED: {len(blocking)} duplicate unit(s) — this appears "
-            f"to already exist in the codebase.",
+            f"cm gate: REVIEW REQUIRED — {len(blocking)} unit(s) resemble "
+            f"code this project already has.",
             "Baseline NOT updated; the gate will re-flag until resolved.",
-            blocking, warn, fail, out)
+            blocking, out)
         return 2 if hook else 1
 
-    _commit(root, result, _corpus_stats(result.records, light))
+    _commit(root, result, _corpus_stats(result.records))
     if hook:
         # exit-0 stdout is visible in the verbose transcript: leave a trace of
         # what the gate absorbed so silent commits are reconstructible
-        print(f"cm gate: {len(targets)} new/changed unit(s) scored clean and "
+        print(f"cm gate: {len(targets)} new/changed unit(s) screened clean and "
               f"absorbed into the baseline{delta}")
     else:
-        print(f"gate clean: {len(targets)} changed unit(s) scored{delta}, "
-              f"{len(overlaps)} overlap(s) noted (non-blocking); baseline updated")
-        for rep in overlaps[:5]:
-            _print_unit_report(rep, warn, fail)
+        print(f"gate clean: {len(targets)} changed unit(s) screened{delta}; "
+              f"baseline updated")
     return 0
 
 
 def cmd_gate(args) -> int:
-    return _gate_run(Path(args.path).resolve(), args.warn, args.fail, args.top, args.hook)
+    return _gate_run(Path(args.path).resolve(), args.top, args.hook)
 
 
 def _proposed_content(path: Path, tool: str, tool_input: dict) -> str | None:
@@ -324,8 +281,7 @@ def _proposed_content(path: Path, tool: str, tool_input: dict) -> str | None:
     return None
 
 
-def _precheck(root: Path, abspath: Path, proposed: str,
-              warn: float, fail: float, top: int) -> int:
+def _precheck(root: Path, abspath: Path, proposed: str, top: int) -> int:
     """Score a proposed write before it reaches disk. 0 = allow, 2 = deny."""
     cache = load_cache(root)
     if not cache:
@@ -353,13 +309,13 @@ def _precheck(root: Path, abspath: Path, proposed: str,
               for u in r.units if u.scoreable]
     corpus += [u for u in rec.units if u.scoreable]
     reports = score_targets(targets, corpus, top=top)
-    blocking, _ = _screen(reports, load_accepted(root), warn, fail)
+    blocking = _screen(reports, load_accepted(root))
     if blocking:
         _print_block(
-            f"cm precheck DENIED this write: {len(blocking)} unit(s) duplicate "
-            f"code that already exists. The file was NOT modified.",
+            f"cm precheck: REVIEW REQUIRED — the write was withheld. "
+            f"{len(blocking)} unit(s) resemble code this project already has.",
             "Revise the write to reuse/extend the cited unit, or accept first and retry.",
-            blocking, warn, fail, sys.stderr)
+            blocking, sys.stderr)
         return 2
     return 0
 
@@ -388,8 +344,8 @@ def cmd_hook(args) -> int:
         proposed = _proposed_content(Path(target), payload.get("tool_name", ""), tool_input)
         if proposed is None:
             return 0
-        return _precheck(root, Path(target), proposed, args.warn, args.fail, args.top)
-    return _gate_run(root, args.warn, args.fail, args.top, hook=True)
+        return _precheck(root, Path(target), proposed, args.top)
+    return _gate_run(root, args.top, hook=True)
 
 
 def cmd_accept(args) -> int:
@@ -414,12 +370,12 @@ This repo is compiled into PROJECT.cm (every file's functions, fingerprints,
 and algorithm skeletons). The goal is token efficiency: never rewrite what
 the codebase already contains.
 
-- Writes are checked BEFORE they land: the precheck hook denies duplicate
-  code with the file untouched. After clean writes land, `cm gate`
-  reconciles the baseline incrementally.
-- If a write is DENIED or the gate reports DUPLICATE, stop: read the cited
-  unit (file@lines; the anchor diff explains any difference) and reuse or
-  extend it instead.
+- Writes are checked BEFORE they land: the precheck hook withholds writes
+  that resemble existing code, with the file untouched. After clean writes
+  land, `cm gate` reconciles the baseline incrementally.
+- If a write is held for REVIEW, stop and read the cited unit (file@lines;
+  the shared tokens explain the resemblance). Then decide: reuse it, extend
+  it, or record an intentional difference.
 - If the similarity is intentional, run `cm accept <fp>` and continue.
 - PROJECT.cm and the baseline update automatically when the gate passes.
 {_PROTO_END}"""
@@ -527,9 +483,7 @@ def cmd_drift(args) -> int:
             have_fps.add(tok)
 
     covered, stale, missing = [], [], []
-    bits_to_sync = 0.0
     for f in files:
-        content_lines = f.content.split("\n") if f.content is not None else None
         for u in f.units:
             key = f"{f.path}#{u.qualname}"
             status = "missing"
@@ -540,30 +494,24 @@ def cmd_drift(args) -> int:
             if status == "covered":
                 covered.append(key)
                 continue
-            if content_lines is not None:
-                body = "\n".join(content_lines[u.start - 1:u.end])
-                bits = standalone_bits(norm_source(body, f.lang).encode("utf-8"))
-            else:
-                bits = (u.end - u.start + 1) * 40.0  # rough estimate without content
-            bits_to_sync += bits
-            (stale if status == "stale" else missing).append((key, u.kind, round(bits)))
+            lines = u.end - u.start + 1
+            (stale if status == "stale" else missing).append((key, u.kind, lines))
 
     total = len(covered) + len(stale) + len(missing)
+    lines_to_sync = sum(x[2] for x in stale + missing)
     if args.json:
         print(json.dumps({
             "units": total, "covered": len(covered), "stale": len(stale),
-            "missing": len(missing), "bits_to_sync": round(bits_to_sync),
-            "stale_units": [{"unit": k, "bits": b} for k, _, b in stale],
-            "missing_units": [{"unit": k, "bits": b} for k, _, b in missing],
+            "missing": len(missing), "lines_to_sync": lines_to_sync,
+            "stale_units": [{"unit": k, "lines": n} for k, _, n in stale],
+            "missing_units": [{"unit": k, "lines": n} for k, _, n in missing],
         }, indent=2))
         return 0
     print(f"DRIFT vs {cm_path.name}: {len(covered)}/{total} units in context, "
           f"{len(stale)} stale, {len(missing)} missing")
-    print(f"  bits to sync: {bits_to_sync:,.0f} "
-          f"(~{bits_to_sync / 8 / 1024:.1f} KiB of novel information)")
-    worst = sorted(stale + missing, key=lambda x: -x[2])[:10]
-    for key, kind, bits in worst:
-        print(f"    {kind:<8} {key}  {bits:,} bits")
+    print(f"  to sync: {lines_to_sync:,} lines across {len(stale) + len(missing)} units")
+    for key, kind, lines in sorted(stale + missing, key=lambda x: -x[2])[:10]:
+        print(f"    {kind:<8} {key}  {lines:,} lines")
     return 0
 
 
@@ -587,20 +535,16 @@ def main(argv=None) -> int:
     st.add_argument("path", nargs="?", default=".")
     st.set_defaults(fn=cmd_status)
 
-    g = sub.add_parser("gate", help="recompile + score changed units; block on duplicates")
+    g = sub.add_parser("gate", help="recompile + screen changed units; hold resemblances for review")
     g.add_argument("path", nargs="?", default=".")
     g.add_argument("--hook", action="store_true",
-                   help="agent-hook mode: silent on success, findings to stderr, exit 2 on block")
-    g.add_argument("--warn", type=float, default=0.55)
-    g.add_argument("--fail", type=float, default=0.80)
+                   help="agent-hook mode: silent on success, findings to stderr, exit 2 on hold")
     g.add_argument("--top", type=int, default=3)
     g.set_defaults(fn=cmd_gate)
 
     hk = sub.add_parser("hook", help="Claude Code hook entry (hook JSON on stdin): "
-                                     "PreToolUse denies duplicate writes pre-disk, "
+                                     "PreToolUse withholds resembling writes pre-disk, "
                                      "PostToolUse reconciles via the gate")
-    hk.add_argument("--warn", type=float, default=0.55)
-    hk.add_argument("--fail", type=float, default=0.80)
     hk.add_argument("--top", type=int, default=3)
     hk.set_defaults(fn=cmd_hook)
 
@@ -616,19 +560,15 @@ def main(argv=None) -> int:
                      help="also install the Claude Code PostToolUse write gate")
     ini.set_defaults(fn=cmd_init)
 
-    c = sub.add_parser("check", help="score new/changed files for redundancy vs the tree")
+    c = sub.add_parser("check", help="screen files for resemblance vs the tree")
     c.add_argument("targets", nargs="+", help="files treated as 'new code'")
     c.add_argument("--root", default=".", help="corpus root (default: cwd)")
-    c.add_argument("--warn", type=float, default=0.55)
-    c.add_argument("--fail", type=float, default=0.80)
     c.add_argument("--top", type=int, default=3)
     c.add_argument("--json", action="store_true")
     c.set_defaults(fn=cmd_check)
 
-    a = sub.add_parser("audit", help="pairwise redundancy self-audit of the whole tree")
+    a = sub.add_parser("audit", help="pairwise resemblance self-audit of the whole tree")
     a.add_argument("path", nargs="?", default=".")
-    a.add_argument("--warn", type=float, default=0.55)
-    a.add_argument("--fail", type=float, default=0.80)
     a.add_argument("--top", type=int, default=3)
     a.add_argument("--limit", type=int, default=20)
     a.add_argument("--json", action="store_true")
