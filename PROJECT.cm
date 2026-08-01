@@ -1,8 +1,8 @@
 ::cm 0.3
 ::project ContextManager
 ::root .
-::generated 2026-08-01T01:40:01+00:00
-::stats files=34 units=182 functions=159 raw_bytes=137967
+::generated 2026-08-01T06:02:57+00:00
+::stats files=40 units=220 functions=188 raw_bytes=150523
 
 ::file .claude-plugin/marketplace.json
 ::lang json
@@ -734,88 +734,91 @@ def add_accepted(root: Path, fps: list[str], reason: str = "") -> None:
 
 ::file cm/cli.py
 ::lang python
-::sha 1167b3a384b8
-::lines 586
+::sha 129d99b06f06
+::lines 618
 ::doc cm command line: build / check / audit / drift.
-::imports __future__, argparse, cache, cmfile, datetime, extract, ignore, json, model, pathlib, redundancy, scan, shutil, sys
-::unit function _corpus_stats @20-27 #ac3b090f
+::imports __future__, argparse, cache, cmfile, datetime, detectors, extract, ignore, json, model, pathlib, redundancy, scan, shutil, sys
+::unit function _corpus_stats @21-28 #ac3b090f
 ::sig _corpus_stats(records) -> dict
 ::keys ["dict", "files", "function", "functions", "kind", "len", "method", "raw_bytes", "size", "sum", "units"]
-::unit function _utc_now @30-32 #ebdd6a69
+::unit function _utc_now @31-33 #ebdd6a69
 ::sig _utc_now() -> str
 ::keys ["datetime", "isoformat", "now", "seconds", "str", "timezone", "utc"]
-::unit function _commit @35-43 #e5226df9
+::unit function _commit @36-44 #e5226df9
 ::sig _commit(root: Path, result, stats: dict, no_content: bool=False, output: str | None=None) -> Path
 ::doc Write PROJECT.cm and the cache: the new accepted baseline.
 ::keys ["PROJECT.cm", "Path", "_utc_now", "bool", "dict", "emit", "generated", "name", "project", "records", "root", "save_cache", "stats", "str", "utf-8", "write_text"]
-::unit function cmd_build @46-59 #a9331132
+::unit function cmd_build @47-60 #a9331132
 ::sig cmd_build(args) -> int
 ::keys ["):", "...", "8", "PROJECT.cm written ->", "Path", "_commit", "_corpus_stats", "analyzed", "binary", "cache_hits", "cached,", "changed", "files", "full", "functions", "functions)  raw", "incremental:", "int", "join", "len", "load_cache", "no_content", "output", "path", "print", "raw_bytes", "records", "resolve", "scan_tree", "skipped (", "skipped_binary", "skipped_large", "too large", "units"]
-::unit function cmd_status @62-80 #e7268336
+::unit function cmd_status @63-81 #e7268336
 ::sig cmd_status(args) -> int
 ::keys ["10", ">8", "PROJECT.cm", "PROJECT.cm is", "Path", "STALE \u2014 run 'cm build' or 'cm gate'", "added", "baseline:", "bool", "changed", "files | added", "int", "is_file", "len", "load_cache", "modified", "no baseline (.cm/ cache missing or stale) \u2014 run 'cm build' or 'cm init'", "path", "print", "records", "removed", "resolve", "scan_tree", "set", "sorted", "up to date"]
-::unit function _print_unit_report @83-97 #aa4e4873
+::unit function _print_unit_report @84-98 #aa4e4873
 ::sig _print_unit_report(rep: dict, out=None) -> None
 ::keys ["2", ">7", "IDENTICAL-STRUCTURE", "action", "dict", "exact_structural_dup", "file", "fp", "get", "join", "lines", "lines)", "match_lines", "matches", "overlap", "print", "reasons", "repr", "resembles", "shared", "shared tokens:", "signature", "snippet", "span", "stdout", "sys", "target_lines", "unit", "upper"]
-::unit function _summarize @100-104 #9ab16ce5
+::unit function _summarize @101-105 #9ab16ce5
 ::sig _summarize(reports: list[dict]) -> dict
 ::keys ["action", "dict", "list", "pass", "review", "trivial"]
-::unit function cmd_check @107-146 #8df20b0b
+::unit function cmd_check @108-148 #70ebea40
 ::sig cmd_check(args) -> int
-::keys ["(corpus:", "2", "CHECK", "Path", "Summary:", "Unit", "ValueError", "_print_unit_report", "_summarize", "action", "all_units", "as_posix", "class", "corpus_units", "dumps", "error: target is binary:", "error: target not found:", "extend", "files)", "int", "is_file", "join", "json", "kind", "len", "list", "load_cache", "load_file", "pass", "pass,", "print", "records", "relative_to", "resolve", "review", "root", "scan_tree", "score_targets", "sorted", "stderr", "str", "summary", "sys", "targets", "to review,", "top", "trivial", "units", "units /"]
-::unit function cmd_audit @149-169 #4d223e0e
+::keys ["(corpus:", "2", "CHECK", "Path", "Summary:", "Unit", "ValueError", "_print_unit_report", "_summarize", "action", "all_units", "as_posix", "class", "corpus_units", "dumps", "error: target is binary:", "error: target not found:", "extend", "files)", "int", "is_file", "join", "json", "kind", "len", "list", "load_cache", "load_enabled", "load_file", "pass", "pass,", "print", "records", "relative_to", "resolve", "review", "root", "scan_tree", "score_targets", "sorted", "stderr", "str", "summary", "sys", "targets", "to review,", "top", "trivial", "units", "units /"]
+::unit function cmd_audit @151-171 #2b70da18
 ::sig cmd_audit(args) -> int
-::keys ["2", "AUDIT", "No unit resembles another closely enough to review.", "Path", "Summary:", "_print_unit_report", "_summarize", "all_units", "dumps", "files)", "int", "json", "len", "limit", "load_cache", "matches", "max", "overlap_lines", "pass", "pass,", "path", "print", "records", "requires_review", "resolve", "review", "root", "scan_tree", "score_targets", "scoreable units /", "shared_count", "sort", "str", "summary", "to review,", "top", "trivial", "units"]
-::unit function _changed_units @172-185 #fb750821
+::keys ["2", "AUDIT", "No unit resembles another closely enough to review.", "Path", "Summary:", "_print_unit_report", "_summarize", "all_units", "dumps", "files)", "int", "json", "len", "limit", "load_cache", "load_enabled", "matches", "max", "overlap_lines", "pass", "pass,", "path", "print", "records", "requires_review", "resolve", "review", "root", "scan_tree", "score_targets", "scoreable units /", "shared_count", "sort", "str", "summary", "to review,", "top", "trivial", "units"]
+::unit function _changed_units @174-187 #fb750821
 ::sig _changed_units(result, cache: dict) -> list[Unit]
 ::doc Scoreable units that are new or modified relative to the cached baseline.
 ::keys ["Unit", "dict", "extend", "fp", "get", "list", "path", "records", "scoreable", "set", "sha", "units"]
-::unit function _screen @188-191 #cf395a60
+::unit function _screen @190-193 #cf395a60
 ::sig _screen(reports, accepted)
 ::doc Units needing review, minus fingerprints already accepted in the ledger.
 ::keys ["fp", "requires_review"]
-::unit function _print_block @194-203 #efe59555
+::unit function _print_block @196-205 #efe59555
 ::sig _print_block(headline, footer, blocking, out)
 ::keys ["--reason \"...\"    #", "Read each cited unit, then decide: reuse it, extend it, or \u2014 if the resemblance is intentional \u2014 record the decision:", "_print_unit_report", "cm accept", "fp", "matches", "max", "overlap_lines", "print", "shared_count", "sorted", "unit"]
-::unit function _gate_run @206-252 #b21e0d17
+::unit function _gate_run @208-255 #6fb6cb4e
 ::sig _gate_run(root: Path, top: int, hook: bool) -> int
 ::doc The write interlock: recompile incrementally, screen what changed,
-::keys ["(files +", "/-", "2", "; baseline refreshed", "; baseline updated", "Baseline NOT updated; the gate will re-flag until resolved.", "Path", "_changed_units", "_commit", "_corpus_stats", "_print_block", "_screen", "all_units", "bool", "changed unit(s) screened", "cm gate:", "cm gate: REVIEW REQUIRED \u2014", "cm gate: baseline created (", "files,", "gate clean:", "gate clean: no changed units", "int", "len", "load_accepted", "load_cache", "new/changed unit(s) screened clean and absorbed into the baseline", "path", "print", "records", "scan_tree", "score_targets", "stderr", "stdout", "sys", "unit(s) resemble code this project already has.", "units)"]
-::unit function cmd_gate @255-256 #29caf149
+::keys ["(files +", "/-", "2", "; baseline refreshed", "; baseline updated", "Baseline NOT updated; the gate will re-flag until resolved.", "Path", "_changed_units", "_commit", "_corpus_stats", "_print_block", "_screen", "all_units", "bool", "changed unit(s) screened", "cm gate:", "cm gate: REVIEW REQUIRED \u2014", "cm gate: baseline created (", "files,", "gate clean:", "gate clean: no changed units", "int", "len", "load_accepted", "load_cache", "load_enabled", "new/changed unit(s) screened clean and absorbed into the baseline", "path", "print", "records", "scan_tree", "score_targets", "stderr", "stdout", "sys", "unit(s) resemble code this project already has.", "units)"]
+::unit function cmd_gate @258-259 #29caf149
 ::sig cmd_gate(args) -> int
 ::keys ["Path", "_gate_run", "hook", "int", "path", "resolve", "top"]
-::unit function _proposed_content @259-281 #7de0d58b
+::unit function _proposed_content @262-284 #7de0d58b
 ::sig _proposed_content(path: Path, tool: str, tool_input: dict) -> str | None
 ::doc Model the post-tool content of a Write/Edit. None = cannot model: allow,
 ::keys ["Edit", "MultiEdit", "OSError", "Path", "Write", "content", "count", "dict", "edits", "get", "isinstance", "new_string", "old_string", "read_text", "replace", "replace_all", "str", "utf-8"]
-::unit function _precheck @284-320 #a89b9808
+::unit function _precheck @287-323 #4cf53826
 ::sig _precheck(root: Path, abspath: Path, proposed: str, top: int) -> int
 ::doc Score a proposed write before it reaches disk. 0 = allow, 2 = deny.
-::keys ["2", "IgnoreRules", "MAX_FILE_BYTES", "Path", "Revise the write to reuse/extend the cited unit, or accept first and retry.", "ValueError", "_print_block", "_screen", "as_posix", "cm precheck: REVIEW REQUIRED \u2014 the write was withheld.", "encode", "extract_units", "fp", "get", "ignored", "int", "len", "load", "load_accepted", "load_cache", "path", "record_from_bytes", "records", "relative_to", "resolve", "scan_tree", "score_targets", "scoreable", "set", "stderr", "str", "sys", "unit(s) resemble code this project already has.", "units", "utf-8"]
-::unit function cmd_hook @323-348 #69ac34b7
+::keys ["2", "IgnoreRules", "MAX_FILE_BYTES", "Path", "Revise the write to reuse/extend the cited unit, or accept first and retry.", "ValueError", "_print_block", "_screen", "as_posix", "cm precheck: REVIEW REQUIRED \u2014 the write was withheld.", "encode", "extract_units", "fp", "get", "ignored", "int", "len", "load", "load_accepted", "load_cache", "load_enabled", "path", "record_from_bytes", "records", "relative_to", "resolve", "scan_tree", "score_targets", "scoreable", "set", "stderr", "str", "sys", "unit(s) resemble code this project already has.", "units", "utf-8"]
+::unit function cmd_hook @326-351 #69ac34b7
 ::sig cmd_hook(args) -> int
 ::doc Claude Code hook entry: reads the hook JSON on stdin.
 ::keys ["Path", "PreToolUse", "ValueError", "_gate_run", "_precheck", "_proposed_content", "cwd", "dict", "file_path", "find_root", "get", "hook_event_name", "int", "isinstance", "json", "loads", "notebook_path", "parent", "read", "stdin", "sys", "tool_input", "tool_name", "top", "{}"]
-::unit function cmd_accept @351-361 #b89ba7ab
+::unit function cmd_accept @354-364 #b89ba7ab
 ::sig cmd_accept(args) -> int
 ::keys ["0123456789abcdef", "2", "8", "Path", "accepted", "add_accepted", "any", "append", "error:", "fingerprint(s); 'cm gate' will no longer block on them", "fps", "int", "is not a unit fingerprint (8 hex chars)", "len", "print", "reason", "resolve", "root", "stderr", "sys"]
-::unit function _write_protocol @384-398 #5582a96c
+::unit function _write_protocol @387-401 #5582a96c
 ::sig _write_protocol(root: Path) -> str
 ::keys ["## cm \u2014 redundancy gate\n\nThis repo is compiled into PROJECT.cm (every file's functions, fingerprints,\nand algorithm skeletons). The goal is token efficiency: never rewrite what\nthe codebase already contains.\n\n- Writes are checked BEFORE they land: the precheck hook withholds writes\n  that resemble existing code, with the file untouched. After clean writes\n  land, `cm gate` reconciles the baseline incrementally.\n- If a write is held for REVIEW, stop and read the cited unit (file@lines;\n  the shared tokens explain the resemblance). Then decide: reuse it, extend\n  it, or record an intentional difference.\n- If the similarity is intentional, run `cm accept <fp>` and continue.\n- PROJECT.cm and the baseline update automatically when the gate passes.", "<!-- cm:protocol:begin -->", "<!-- cm:protocol:end -->", "AGENTS.md", "CLAUDE.md", "Path", "_PROTOCOL", "_PROTO_BEGIN", "_PROTO_END", "is_file", "partition", "protocol section written to existing", "protocol written to new CLAUDE.md", "read_text", "rstrip", "str", "utf-8", "write_text"]
-::unit function _install_hook @401-430 #1e03a913
+::unit function _install_hook @404-433 #1e03a913
 ::sig _install_hook(root: Path) -> str
 ::doc Install both write gates: PreToolUse denies duplicates before they reach
 ::keys ["\" -m cm hook", ".claude", "2", "Path", "PostToolUse", "PreToolUse", "SKIPPED hook install: .claude/settings.json is not valid JSON", "ValueError", "Write|Edit|MultiEdit", "any", "append", "cm", "cm gate --hook", "cm hook", "command", "dumps", "executable", "get", "hooks", "hooks already installed in .claude/settings.json", "hooks installed in .claude/settings.json (", "is_file", "join", "json", "loads", "matcher", "mkdir", "parent", "read_text", "remove", "setdefault", "settings.json", "shutil", "str", "sys", "type", "utf-8", "which", "write_text"]
-::unit function cmd_init @433-458 #0d116ae2
+::unit function cmd_init @436-461 #0d116ae2
 ::sig cmd_init(args) -> int
 ::keys ["# cm ignore rules (gitignore syntax). Defaults already exclude VCS\n# dirs, caches, binaries, .cm/ state, and *.cm outputs.", ".cmignore", ".cmignore created", "PROJECT.cm + .cm/ baseline built (", "Path", "_commit", "_corpus_stats", "_install_hook", "_write_protocol", "agent hook not installed (rerun with --hooks to gate writes automatically)", "append", "cm", "cm init:", "files", "files,", "hooks", "int", "is_file", "note: 'cm' not on PATH \u2014 install with: pip install -e <cm repo>  (or pipx)", "path", "print", "records", "resolve", "scan_tree", "shutil", "units", "units)", "utf-8", "which", "write_text"]
-::unit function cmd_drift @461-515 #4fa66113
+::unit function cmd_detectors @464-484 #b07ce185
+::sig cmd_detectors(args) -> int
+::keys ["(known:", "12", "2", "OFF", "Path", "REGISTRY", "__doc__", "__module__", "detectors for", "disable", "enable", "enabled_names", "error: unknown detector(s):", "int", "items", "join", "modules", "on", "print", "resolve", "root", "set_enabled", "splitlines", "stderr", "strip", "sys"]
+::unit function cmd_drift @487-541 #4fa66113
 ::sig cmd_drift(args) -> int
 ::keys ["10", "2", "8", "<8", "DRIFT vs", "Path", "add", "append", "cm", "covered", "dumps", "end", "error:", "fp", "int", "is_file", "json", "kind", "len", "lines", "lines across", "lines_to_sync", "manifest", "missing", "missing_units", "name", "not found (run 'cm build' first)", "parse", "partition", "path", "print", "qualname", "read", "read_text", "set", "sorted", "splitlines", "stale", "stale,", "stale_units", "start", "startswith", "stderr", "stdin", "strip", "sum", "sys", "to sync:", "unit", "units", "units in context,", "utf-8"]
-::unit function main @518-585 #e591dd1e
+::unit function main @544-617 #f583a470
 ::sig main(argv=None) -> int
-::keys ["--cm", "--full", "--hook", "--hooks", "--json", "--limit", "--no-content", "--output", "--reason", "--root", "--top", "--version", "-o", "20", "3", "ArgumentParser", "Claude Code hook entry (hook JSON on stdin): PreToolUse withholds resembling writes pre-disk, PostToolUse reconciles via the gate", "Compile a codebase into a context management artifact (PROJECT.cm) and police redundancy with information-theoretic checks.", "PROJECT.cm", "[experimental] context-vs-PROJECT.cm divergence", "__version__", "accept", "add_argument", "add_parser", "add_subparsers", "agent-hook mode: silent on success, findings to stderr, exit 2 on hold", "also install the Claude Code PostToolUse write gate", "argparse", "audit", "build", "check", "cm", "cmd", "cmd_accept", "cmd_audit", "cmd_build", "cmd_check", "cmd_drift", "cmd_gate", "cmd_hook", "cmd_init", "cmd_status", "compile the tree into PROJECT.cm (incremental)", "corpus root (default: cwd)", "drift", "file of section refs the context holds (fp8 | path | path#qualname@fp8), '-' for stdin", "files treated as 'new code'", "fn", "fp", "fps", "gate", "hook", "ignore the cache, recompile everything", "index only: omit file contents from the .cm", "init", "install cm into a repo: baseline + agent protocol", "int", "is the baseline current? what changed?", "manifest", "mark flagged fingerprints as reviewed-and-intentional", "pairwise resemblance self-audit of the whole tree", "parse_args", "path", "recompile + screen changed units; hold resemblances for review"]
-::content 586
+::keys ["--cm", "--disable", "--enable", "--full", "--hook", "--hooks", "--json", "--limit", "--no-content", "--output", "--reason", "--root", "--top", "--version", "-o", "20", "3", "ArgumentParser", "Claude Code hook entry (hook JSON on stdin): PreToolUse withholds resembling writes pre-disk, PostToolUse reconciles via the gate", "Compile a codebase into a context management artifact (PROJECT.cm) and police redundancy with information-theoretic checks.", "NAME", "PROJECT.cm", "[experimental] context-vs-PROJECT.cm divergence", "__version__", "accept", "add_argument", "add_parser", "add_subparsers", "agent-hook mode: silent on success, findings to stderr, exit 2 on hold", "also install the Claude Code PostToolUse write gate", "argparse", "audit", "build", "check", "cm", "cmd", "cmd_accept", "cmd_audit", "cmd_build", "cmd_check", "cmd_detectors", "cmd_drift", "cmd_gate", "cmd_hook", "cmd_init", "cmd_status", "compile the tree into PROJECT.cm (incremental)", "corpus root (default: cwd)", "detectors", "drift", "file of section refs the context holds (fp8 | path | path#qualname@fp8), '-' for stdin", "files treated as 'new code'", "fn", "fp", "fps", "gate", "hook", "ignore the cache, recompile everything", "index only: omit file contents from the .cm", "init", "install cm into a repo: baseline + agent protocol", "int", "is the baseline current? what changed?", "list or toggle tripwire detectors for a repo"]
+::content 618
 """cm command line: build / check / audit / drift."""
 from __future__ import annotations
 
@@ -828,6 +831,7 @@ from pathlib import Path
 from . import __version__
 from .cache import add_accepted, find_root, load_accepted, load_cache, save_cache
 from .cmfile import emit, parse
+from .detectors import REGISTRY, enabled_names, load_enabled, set_enabled
 from .extract import extract_units
 from .ignore import IgnoreRules
 from .model import Unit
@@ -946,7 +950,8 @@ def cmd_check(args) -> int:
         target_units.extend(rec.units)
 
     scoreables = [u for u in target_units if u.kind != "class"]
-    reports = score_targets(scoreables, corpus, top=args.top)
+    reports = score_targets(scoreables, corpus, top=args.top,
+                            detectors=load_enabled(root))
     counts = _summarize(reports)
 
     if args.json:
@@ -968,7 +973,7 @@ def cmd_audit(args) -> int:
     root = Path(args.path).resolve()
     result = scan_tree(root, cache=load_cache(root))
     units = result.all_units(scoreable_only=True)
-    reports = score_targets(units, units, top=args.top)
+    reports = score_targets(units, units, top=args.top, detectors=load_enabled(root))
     flagged = [r for r in reports if requires_review(r)]
     flagged.sort(key=lambda r: -max(
         (m["shared_count"] + m["overlap_lines"] for m in r["matches"]), default=0))
@@ -1047,7 +1052,8 @@ def _gate_run(root: Path, top: int, hook: bool) -> int:
             print(f"gate clean: no changed units{delta}; baseline refreshed")
         return 0
 
-    reports = score_targets(targets, result.all_units(scoreable_only=True), top=top)
+    reports = score_targets(targets, result.all_units(scoreable_only=True), top=top,
+                            detectors=load_enabled(root))
     blocking = _screen(reports, load_accepted(root))
 
     if blocking:
@@ -1126,7 +1132,7 @@ def _precheck(root: Path, abspath: Path, proposed: str, top: int) -> int:
     corpus = [u for r in result.records if r.path != rel
               for u in r.units if u.scoreable]
     corpus += [u for u in rec.units if u.scoreable]
-    reports = score_targets(targets, corpus, top=top)
+    reports = score_targets(targets, corpus, top=top, detectors=load_enabled(root))
     blocking = _screen(reports, load_accepted(root))
     if blocking:
         _print_block(
@@ -1276,6 +1282,29 @@ def cmd_init(args) -> int:
     return 0
 
 
+def cmd_detectors(args) -> int:
+    root = Path(args.root).resolve()
+    changes = {}
+    for name in args.enable:
+        changes[name] = True
+    for name in args.disable:
+        changes[name] = False
+    unknown = [n for n in changes if n not in REGISTRY]
+    if unknown:
+        print(f"error: unknown detector(s): {', '.join(unknown)} "
+              f"(known: {', '.join(REGISTRY)})", file=sys.stderr)
+        return 2
+    if changes:
+        set_enabled(root, changes)
+    enabled = enabled_names(root)
+    print(f"detectors for {root}:")
+    for name, cls in REGISTRY.items():
+        doc = (sys.modules[cls.__module__].__doc__ or "").strip().splitlines()
+        summary = doc[0] if doc else ""
+        print(f"  {'on ' if enabled[name] else 'OFF'}  {name:12} {summary}")
+    return 0
+
+
 def cmd_drift(args) -> int:
     cm_path = Path(args.cm)
     if not cm_path.is_file():
@@ -1391,6 +1420,12 @@ def main(argv=None) -> int:
     a.add_argument("--limit", type=int, default=20)
     a.add_argument("--json", action="store_true")
     a.set_defaults(fn=cmd_audit)
+
+    dt = sub.add_parser("detectors", help="list or toggle tripwire detectors for a repo")
+    dt.add_argument("--root", default=".")
+    dt.add_argument("--enable", nargs="*", default=[], metavar="NAME")
+    dt.add_argument("--disable", nargs="*", default=[], metavar="NAME")
+    dt.set_defaults(fn=cmd_detectors)
 
     d = sub.add_parser("drift", help="[experimental] context-vs-PROJECT.cm divergence")
     d.add_argument("manifest", help="file of section refs the context holds "
@@ -1587,6 +1622,405 @@ def parse(text: str) -> tuple[dict, list[CmFile]]:
         elif directive == "imports":
             cur.imports = [s.strip() for s in rest.split(",") if s.strip()]
     return meta, files
+
+::endfile
+
+::file cm/detectors/__init__.py
+::lang python
+::sha 0613dba8f4ab
+::lines 57
+::doc The detector registry: the tripwire's plugin surface.
+::imports __future__, base, json, pathlib
+::unit function register @16-18 #14bbe51f
+::sig register(cls)
+::keys ["REGISTRY", "name"]
+::unit function enabled_names @25-37 #e66c297c
+::sig enabled_names(root: Path | None=None) -> dict[str, bool]
+::keys [".cm", "OSError", "Path", "REGISTRY", "ValueError", "bool", "config.json", "detectors", "dict", "get", "is_file", "items", "json", "loads", "read_text", "str", "utf-8"]
+::unit function load_enabled @40-42 #bc5e5874
+::sig load_enabled(root: Path | None=None) -> list[Detector]
+::keys ["Detector", "Path", "REGISTRY", "enabled_names", "list"]
+::unit function set_enabled @45-56 #54dac4f0
+::sig set_enabled(root: Path, changes: dict[str, bool]) -> None
+::keys [".cm", "2", "OSError", "Path", "ValueError", "bool", "config.json", "detectors", "dict", "dumps", "is_file", "json", "loads", "mkdir", "parent", "read_text", "setdefault", "str", "update", "utf-8", "write_text"]
+::content 57
+"""The detector registry: the tripwire's plugin surface.
+
+Every detector registers itself here; repos choose which ones run via
+`.cm/config.json` (`{"detectors": {"name": false}}` disables one — absent
+means enabled). `cm detectors` lists and toggles them. See base.py for the
+contract and how to write a new detector.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+REGISTRY: dict[str, type] = {}
+
+
+def register(cls):
+    REGISTRY[cls.name] = cls
+    return cls
+
+
+from .base import Detector, Evidence  # noqa: E402  (registry must exist first)
+from . import fingerprint, lines, tokens  # noqa: E402,F401  (self-registering)
+
+
+def enabled_names(root: Path | None = None) -> dict[str, bool]:
+    enabled = {name: True for name in REGISTRY}
+    if root is not None:
+        p = Path(root) / ".cm" / "config.json"
+        if p.is_file():
+            try:
+                cfg = json.loads(p.read_text(encoding="utf-8"))
+                for name, on in (cfg.get("detectors") or {}).items():
+                    if name in enabled:
+                        enabled[name] = bool(on)
+            except (ValueError, OSError):
+                pass
+    return enabled
+
+
+def load_enabled(root: Path | None = None) -> list[Detector]:
+    enabled = enabled_names(root)
+    return [REGISTRY[name]() for name in REGISTRY if enabled[name]]
+
+
+def set_enabled(root: Path, changes: dict[str, bool]) -> None:
+    p = Path(root) / ".cm" / "config.json"
+    cfg = {}
+    if p.is_file():
+        try:
+            cfg = json.loads(p.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            cfg = {}
+    detectors = cfg.setdefault("detectors", {})
+    detectors.update(changes)
+    p.parent.mkdir(exist_ok=True)
+    p.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+::endfile
+
+::file cm/detectors/base.py
+::lang python
+::sha fb9e7e884e07
+::lines 58
+::doc The detector contract: what a tripwire plugin is.
+::imports __future__, dataclasses, model
+::unit class Evidence @39-44 #5f41ff50
+::sig class Evidence
+::unit class Detector @47-57 #8e610d00
+::sig class Detector
+::unit method Detector.prepare @50-51 #1d72275b
+::sig prepare(self, corpus: list[Unit]) -> None
+::keys ["Unit", "list"]
+::unit method Detector.affinity @53-54 #5fa65e78
+::sig affinity(self, target: Unit, cand: Unit) -> int
+::keys ["Unit", "int"]
+::unit method Detector.examine @56-57 #4879761d
+::sig examine(self, target: Unit, cand: Unit) -> Evidence | None
+::keys ["Evidence", "Unit"]
+::content 58
+"""The detector contract: what a tripwire plugin is.
+
+A detector is one self-contained way of noticing that a new unit resembles an
+existing one. The engine (redundancy.score_targets) runs every enabled
+detector over candidate pairs and flags a unit for review when any detector
+produces Evidence. Detectors never judge — they report exact, explainable
+observations; the agent reviews.
+
+To write one:
+
+    from .base import Detector, Evidence
+    from . import register
+
+    @register
+    class MyDetector(Detector):
+        name = "mine"
+
+        def prepare(self, corpus):        # optional: once per screening run
+            ...precompute corpus state...
+
+        def affinity(self, target, cand) -> int:   # cheap; ranks candidates
+            return 0                                # 0 = no interest
+
+        def examine(self, target, cand) -> Evidence | None:  # may cost more
+            return Evidence(self.name, "why this pair needs review", ...)
+
+Contract rules: deterministic (same inputs, same output, forever), discrete
+(evidence is tokens and line spans, not scores), self-contained (no state
+outside prepare/instance), and honest (return None unless a reviewer should
+actually look).
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from ..model import Unit
+
+
+@dataclass
+class Evidence:
+    detector: str
+    reason: str  # one printable sentence
+    tokens: list[str] = field(default_factory=list)  # greppable shared tokens
+    blocks: list[dict] = field(default_factory=list)  # matching line spans
+
+
+class Detector:
+    name = "base"
+
+    def prepare(self, corpus: list[Unit]) -> None:
+        pass
+
+    def affinity(self, target: Unit, cand: Unit) -> int:
+        return 0
+
+    def examine(self, target: Unit, cand: Unit) -> Evidence | None:
+        return None
+
+::endfile
+
+::file cm/detectors/fingerprint.py
+::lang python
+::sha ddf91e16a004
+::lines 26
+::doc Fingerprint detector: catches pure renames.
+::imports __future__, base, model
+::unit class FingerprintDetector @15-25 #ed7faea1
+::sig class FingerprintDetector
+::unit method FingerprintDetector.affinity @19-20 #d5a71943
+::sig affinity(self, target: Unit, cand: Unit) -> int
+::keys ["1000", "Unit", "fp", "int"]
+::unit method FingerprintDetector.examine @22-25 #d899e99c
+::sig examine(self, target: Unit, cand: Unit) -> Evidence | None
+::keys ["Evidence", "Unit", "fp", "identical fingerprint (a rename of the same code)", "name"]
+::content 26
+"""Fingerprint detector: catches pure renames.
+
+The fingerprint hashes a unit's normalized body — comments stripped, literals
+collapsed, bound names alpha-renamed, outside names kept — so two units with
+the same fingerprint are the same code modulo naming. This is the only
+resemblance cm treats as near-certain, and the cheapest to check.
+"""
+from __future__ import annotations
+
+from . import register
+from .base import Detector, Evidence
+from ..model import Unit
+
+
+@register
+class FingerprintDetector(Detector):
+    name = "fingerprint"
+
+    def affinity(self, target: Unit, cand: Unit) -> int:
+        return 1000 if cand.fp == target.fp else 0
+
+    def examine(self, target: Unit, cand: Unit) -> Evidence | None:
+        if cand.fp != target.fp:
+            return None
+        return Evidence(self.name, "identical fingerprint (a rename of the same code)")
+
+::endfile
+
+::file cm/detectors/lines.py
+::lang python
+::sha 2a20d91a65e3
+::lines 82
+::doc Line-overlap detector: catches copied cores buried in padding.
+::imports __future__, base, difflib, model, normalize
+::unit function _norm_lines @23-24 #fd12c54d
+::sig _norm_lines(unit: Unit) -> list[str]
+::keys ["Unit", "body", "bound", "lang", "list", "norm_source", "split", "str"]
+::unit class LineOverlapDetector @27-81 #c98c187e
+::sig class LineOverlapDetector
+::unit method LineOverlapDetector.__init__ @31-33 #9b52f174
+::sig __init__(self)
+::keys ["_lines", "_sets", "dict", "frozenset", "int", "list", "str"]
+::unit method LineOverlapDetector._get @35-41 #c71358d1
+::sig _get(self, unit: Unit) -> tuple[list[str], frozenset]
+::keys ["Unit", "_lines", "_norm_lines", "_sets", "frozenset", "id", "list", "str", "strip", "tuple"]
+::unit method LineOverlapDetector.prepare @43-46 #8216f309
+::sig prepare(self, corpus: list[Unit]) -> None
+::keys ["Unit", "_get", "_lines", "_sets", "list"]
+::unit method LineOverlapDetector.affinity @48-49 #57a2d2d9
+::sig affinity(self, target: Unit, cand: Unit) -> int
+::keys ["Unit", "_get", "int", "len"]
+::unit method LineOverlapDetector.blocks @51-71 #07a1fd91
+::sig blocks(self, target: Unit, cand: Unit, limit: int=3) -> list[dict]
+::doc Aligned matching line blocks, in original line numbers.
+::keys ["120", "2", "3", "SequenceMatcher", "Unit", "_MIN_BLOCK", "_get", "a", "append", "b", "body", "dict", "get_matching_blocks", "int", "join", "len", "lines", "list", "match_lines", "size", "snippet", "split", "start", "strip", "sum", "target_lines"]
+::unit method LineOverlapDetector.examine @73-81 #1f397859
+::sig examine(self, target: Unit, cand: Unit) -> Evidence | None
+::keys ["10", "6", "Evidence", "OVERLAP_LINES", "OVERLAP_MIN", "Unit", "affinity", "blocks", "end", "lines", "matching normalized lines", "min", "name", "start", "sum"]
+::content 82
+"""Line-overlap detector: catches copied cores buried in padding.
+
+Lines are compared in per-line normalized form (bound names renamed, outside
+names kept), so a renamed copy still aligns line-for-line with its source.
+Padding around a copied core cannot shrink this overlap. Candidate ranking
+uses cheap set intersection of normalized lines; contiguity and spans are
+computed only for examined pairs.
+"""
+from __future__ import annotations
+
+from difflib import SequenceMatcher
+
+from . import register
+from .base import Detector, Evidence
+from ..model import Unit
+from ..normalize import norm_source
+
+OVERLAP_LINES = 10  # matching normalized lines that are never idiom
+OVERLAP_MIN = 6  # ...or fewer, when they cover most of the smaller unit
+_MIN_BLOCK = 3
+
+
+def _norm_lines(unit: Unit) -> list[str]:
+    return [norm_source(s, unit.lang, unit.bound) for s in unit.body.split("\n")]
+
+
+@register
+class LineOverlapDetector(Detector):
+    name = "lines"
+
+    def __init__(self):
+        self._lines: dict[int, list[str]] = {}
+        self._sets: dict[int, frozenset] = {}
+
+    def _get(self, unit: Unit) -> tuple[list[str], frozenset]:
+        key = id(unit)
+        if key not in self._lines:
+            lines = _norm_lines(unit)
+            self._lines[key] = lines
+            self._sets[key] = frozenset(s for s in lines if s.strip())
+        return self._lines[key], self._sets[key]
+
+    def prepare(self, corpus: list[Unit]) -> None:
+        self._lines, self._sets = {}, {}
+        for c in corpus:
+            self._get(c)
+
+    def affinity(self, target: Unit, cand: Unit) -> int:
+        return len(self._get(target)[1] & self._get(cand)[1])
+
+    def blocks(self, target: Unit, cand: Unit, limit: int = 3) -> list[dict]:
+        """Aligned matching line blocks, in original line numbers."""
+        a, b = self._get(target)[0], self._get(cand)[0]
+        a_raw = target.body.split("\n")
+        sm = SequenceMatcher(None, a, b, autojunk=False)
+        out = []
+        for blk in sm.get_matching_blocks():
+            if blk.size < _MIN_BLOCK:
+                continue
+            if sum(1 for s in a[blk.a:blk.a + blk.size] if s.strip()) < 2:
+                continue  # a run of blank/comment-only lines is not evidence
+            snippet = " / ".join(s.strip() for s in a_raw[blk.a:blk.a + 2] if s.strip())[:120]
+            out.append({
+                "target_lines": [target.start + blk.a, target.start + blk.a + blk.size - 1],
+                "match_lines": [cand.start + blk.b, cand.start + blk.b + blk.size - 1],
+                "lines": blk.size,
+                "snippet": snippet,
+            })
+            if len(out) >= limit:
+                break
+        return out
+
+    def examine(self, target: Unit, cand: Unit) -> Evidence | None:
+        if not self.affinity(target, cand):
+            return None
+        blocks = self.blocks(target, cand)
+        ov = sum(b["lines"] for b in blocks)
+        min_lines = min(target.end - target.start + 1, cand.end - cand.start + 1)
+        if ov >= OVERLAP_LINES or (ov >= OVERLAP_MIN and ov >= 0.5 * min_lines):
+            return Evidence(self.name, f"{ov} matching normalized lines", blocks=blocks)
+        return None
+
+::endfile
+
+::file cm/detectors/tokens.py
+::lang python
+::sha b29622164ec4
+::lines 57
+::doc Shared-tokens detector: catches restructuring.
+::imports __future__, base, features, model
+::unit class SharedTokensDetector @22-56 #4ebd5457
+::sig class SharedTokensDetector
+::unit method SharedTokensDetector.__init__ @26-27 #74f1206a
+::sig __init__(self)
+::keys ["_df", "dict", "int", "str"]
+::unit method SharedTokensDetector.prepare @29-33 #6dd30b25
+::sig prepare(self, corpus: list[Unit]) -> None
+::keys ["Unit", "_df", "feats", "get", "list"]
+::unit method SharedTokensDetector.shared @35-38 #2ae8bfaf
+::sig shared(self, target: Unit, cand: Unit) -> list[str]
+::keys ["3", "COMMON", "RARE_DF", "Unit", "_df", "feats", "get", "len", "list", "sorted", "str"]
+::unit method SharedTokensDetector.affinity @40-41 #e91f784b
+::sig affinity(self, target: Unit, cand: Unit) -> int
+::keys ["Unit", "int", "len", "shared"]
+::unit method SharedTokensDetector.examine @43-56 #6117cc8b
+::sig examine(self, target: Unit, cand: Unit) -> Evidence | None
+::keys [".0%", "2", "3", "8", "COEFF_FLOOR", "Evidence", "SHARED_STRONG", "SHARED_WEAK", "Unit", "feats", "len", "min", "name", "of the smaller unit's features", "shared", "shared distinctive tokens", "shared distinctive tokens covering"]
+::content 57
+"""Shared-tokens detector: catches restructuring.
+
+A behavior-preserving rewrite can rename everything and reshape the control
+flow, but it cannot change the outside names and literal constants the code
+computes with. Sharing several *distinctive* tokens with one existing unit is
+not coincidence. Distinctive is decided by the corpus (document frequency),
+with language-universal vocabulary excluded outright.
+"""
+from __future__ import annotations
+
+from . import register
+from .base import Detector, Evidence
+from ..features import COMMON
+from ..model import Unit
+
+RARE_DF = 3  # a feature in <= this many corpus units is distinctive
+SHARED_STRONG = 3  # this many shared distinctive tokens is not coincidence
+SHARED_WEAK = 2  # ...or fewer, when they dominate both feature sets
+COEFF_FLOOR = 0.6
+
+
+@register
+class SharedTokensDetector(Detector):
+    name = "tokens"
+
+    def __init__(self):
+        self._df: dict[str, int] = {}
+
+    def prepare(self, corpus: list[Unit]) -> None:
+        self._df = {}
+        for c in corpus:
+            for f in c.feats:
+                self._df[f] = self._df.get(f, 0) + 1
+
+    def shared(self, target: Unit, cand: Unit) -> list[str]:
+        out = [f for f in (target.feats & cand.feats)
+               if f not in COMMON and self._df.get(f, 0) <= RARE_DF]
+        return sorted(out, key=lambda f: (self._df.get(f, 0), -len(f)))
+
+    def affinity(self, target: Unit, cand: Unit) -> int:
+        return len(self.shared(target, cand))
+
+    def examine(self, target: Unit, cand: Unit) -> Evidence | None:
+        shared = self.shared(target, cand)
+        n = len(shared)
+        if not (target.feats and cand.feats):
+            return None
+        coeff = n / min(len(target.feats), len(cand.feats))
+        if n >= SHARED_STRONG:
+            reason = f"{n} shared distinctive tokens"
+        elif n >= SHARED_WEAK and coeff >= COEFF_FLOOR:
+            reason = (f"{n} shared distinctive tokens covering "
+                      f"{coeff:.0%} of the smaller unit's features")
+        else:
+            return None
+        return Evidence(self.name, reason, tokens=shared[:8])
 
 ::endfile
 
@@ -2620,147 +3054,64 @@ def norm_source(text: str, lang: str, bound: frozenset | None = None) -> str:
 
 ::file cm/redundancy.py
 ::lang python
-::sha 6dd8616a4707
-::lines 156
-::doc The tripwire: find existing code that resembles what an agent just wrote.
-::imports __future__, difflib, features, model, normalize
-::unit function overlap_blocks @39-63 #1f0ab9aa
-::sig overlap_blocks(target: Unit, cand: Unit, min_lines: int=3, limit: int=3) -> list[dict]
-::doc Aligned matching line blocks between two units, in original line numbers.
-::keys ["120", "2", "3", "SequenceMatcher", "Unit", "a", "append", "b", "body", "bound", "dict", "get_matching_blocks", "int", "join", "lang", "len", "lines", "list", "match_lines", "norm_source", "size", "snippet", "split", "start", "strip", "sum", "target_lines"]
-::unit function _feature_df @66-71 #00b8a547
-::sig _feature_df(corpus: list[Unit]) -> dict
-::keys ["Unit", "dict", "feats", "get", "int", "list", "str"]
-::unit function _distinctive_shared @74-77 #364d5c11
-::sig _distinctive_shared(t: Unit, c: Unit, df: dict) -> list[str]
-::keys ["3", "COMMON", "RARE_DF", "Unit", "dict", "feats", "get", "len", "list", "sorted", "str"]
-::unit function _examine @80-107 #04a6f90a
-::sig _examine(t: Unit, c: Unit, df: dict, deep: bool) -> dict
-::keys [".0%", "10", "2", "3", "6", "8", "COEFF_FLOOR", "OVERLAP_LINES", "OVERLAP_MIN", "SHARED_STRONG", "SHARED_WEAK", "Unit", "_distinctive_shared", "append", "bool", "dict", "end", "exact_structural_dup", "feats", "file", "fp", "identical fingerprint (a rename of the same code)", "len", "lines", "matching normalized lines", "min", "of the smaller unit's features", "overlap", "overlap_blocks", "overlap_coeff", "overlap_lines", "path", "qualname", "reasons", "round", "shared", "shared distinctive tokens", "shared distinctive tokens covering", "shared_count", "span", "start", "sum", "unit"]
-::unit function score_targets @110-151 #1fdb1109
-::sig score_targets(targets: list[Unit], corpus: list[Unit], top: int=3) -> list[dict]
+::sha 45b2e2ef87d2
+::lines 84
+::doc The tripwire engine: run every enabled detector, compose the evidence.
+::imports __future__, detectors, model
+::unit function _compose_match @20-34 #3a0ec25e
+::sig _compose_match(cand: Unit, target: Unit, evidence: list) -> dict
+::keys ["3", "Unit", "any", "blocks", "detector", "dict", "end", "evidence", "exact_structural_dup", "feats", "file", "fingerprint", "len", "lines", "list", "min", "next", "overlap", "overlap_coeff", "overlap_lines", "path", "qualname", "reason", "reasons", "round", "shared", "shared_count", "span", "start", "sum", "tokens", "unit"]
+::unit function score_targets @37-79 #c70f0e4a
+::sig score_targets(targets: list[Unit], corpus: list[Unit], top: int=3, detectors: list | None=None) -> list[dict]
 ::doc Screen each target unit against the corpus. One report dict per unit;
-::keys ["100", "3", "8", "Unit", "_TOP_EXAMINE", "_distinctive_shared", "_examine", "_feature_df", "any", "append", "bool", "dict", "end", "enumerate", "file", "fp", "int", "kind", "len", "list", "max", "overlap_lines", "pass", "path", "qualname", "reasons", "review", "scoreable", "setdefault", "shared_count", "signature", "sort", "sorted", "span", "start", "str", "sum", "trivial", "unit", "update"]
-::unit function requires_review @154-155 #f45a8236
+::keys ["3", "8", "Unit", "_TOP_EXAMINE", "_compose_match", "affinity", "append", "bool", "dict", "end", "examine", "file", "fp", "int", "kind", "len", "list", "load_enabled", "max", "overlap_lines", "pass", "path", "prepare", "qualname", "reasons", "review", "scoreable", "shared_count", "signature", "sort", "sorted", "span", "start", "sum", "trivial", "unit", "update"]
+::unit function requires_review @82-83 #f45a8236
 ::sig requires_review(rep: dict) -> bool
 ::keys ["action", "bool", "dict", "get", "review"]
-::content 156
-"""The tripwire: find existing code that resembles what an agent just wrote.
+::content 84
+"""The tripwire engine: run every enabled detector, compose the evidence.
 
 Design law: deterministic discrete features — grep beats semantic search.
-There is no similarity score to tune and no verdict to compose. A unit is
-flagged for REVIEW when any of four rules fires, each of which is exact,
-explainable, and resistant to a specific disguise:
-
-  1. identical fingerprint          (pure renames: fp hashes the normalized body)
-  2. 3+ shared distinctive tokens   (restructures: rewrites can't change the
-                                     values and names the code computes with)
-  3. 2+ shared distinctive tokens   (small units, where 3 features may not exist)
-     covering most of both feature sets
-  4. 10+ matching normalized lines  (copied cores: padding can't shrink the
-     with a single unit             overlap with the source)
-
-"Distinctive" is measured against the corpus, not assumed: a token counts
-only if it appears in few units (document frequency <= RARE_DF). The
-tripwire never judges — flagged units go to review, where the agent reads
-both and decides. The recorded decision (the accept ledger) is what makes a
-review final.
+The engine holds no detection logic of its own. Detectors (cm/detectors/)
+each notice one kind of resemblance and emit Evidence; a unit is flagged for
+REVIEW when any detector fires against any candidate. The engine's only jobs
+are candidate ranking (sum of detector affinities), evidence composition,
+and the report schema. It never judges — flagged units go to review, where
+the agent reads both and decides; the accept ledger makes that decision
+final.
 """
 from __future__ import annotations
 
-from difflib import SequenceMatcher
-
-from .features import COMMON
+from .detectors import load_enabled
 from .model import Unit
-from .normalize import norm_source
 
-RARE_DF = 3  # a feature in <= this many corpus units is distinctive
-SHARED_STRONG = 3  # this many shared distinctive features is not coincidence
-SHARED_WEAK = 2  # ...or fewer, when they dominate both feature sets
-COEFF_FLOOR = 0.6
-OVERLAP_LINES = 10  # matching normalized lines that are never idiom
-OVERLAP_MIN = 6  # ...or fewer, when they cover most of the smaller unit
-_TOP_EXAMINE = 8  # candidates ranked into detailed evidence per target
+_TOP_EXAMINE = 8  # top-ranked candidates examined in detail per target
 
 
-def overlap_blocks(target: Unit, cand: Unit, min_lines: int = 3, limit: int = 3) -> list[dict]:
-    """Aligned matching line blocks between two units, in original line numbers.
-
-    Lines are compared in per-line normalized form, so renamed clones still align.
-    """
-    a_raw, b_raw = target.body.split("\n"), cand.body.split("\n")
-    a = [norm_source(s, target.lang, target.bound) for s in a_raw]
-    b = [norm_source(s, cand.lang, cand.bound) for s in b_raw]
-    sm = SequenceMatcher(None, a, b, autojunk=False)
-    out = []
-    for blk in sm.get_matching_blocks():
-        if blk.size < min_lines:
-            continue
-        if sum(1 for s in a[blk.a:blk.a + blk.size] if s.strip()) < 2:
-            continue  # a run of blank/comment-only lines is not evidence
-        snippet = " / ".join(s.strip() for s in a_raw[blk.a:blk.a + 2] if s.strip())[:120]
-        out.append({
-            "target_lines": [target.start + blk.a, target.start + blk.a + blk.size - 1],
-            "match_lines": [cand.start + blk.b, cand.start + blk.b + blk.size - 1],
-            "lines": blk.size,
-            "snippet": snippet,
-        })
-        if len(out) >= limit:
-            break
-    return out
-
-
-def _feature_df(corpus: list[Unit]) -> dict:
-    df: dict[str, int] = {}
-    for c in corpus:
-        for f in c.feats:
-            df[f] = df.get(f, 0) + 1
-    return df
-
-
-def _distinctive_shared(t: Unit, c: Unit, df: dict) -> list[str]:
-    shared = [f for f in (t.feats & c.feats)
-              if f not in COMMON and df.get(f, 0) <= RARE_DF]
-    return sorted(shared, key=lambda f: (df.get(f, 0), -len(f)))
-
-
-def _examine(t: Unit, c: Unit, df: dict, deep: bool) -> dict:
-    shared = _distinctive_shared(t, c, df)
-    n = len(shared)
-    coeff = n / min(len(t.feats), len(c.feats)) if (t.feats and c.feats) else 0.0
-    reasons = []
-    if c.fp == t.fp:
-        reasons.append("identical fingerprint (a rename of the same code)")
-    if n >= SHARED_STRONG:
-        reasons.append(f"{n} shared distinctive tokens")
-    elif n >= SHARED_WEAK and coeff >= COEFF_FLOOR:
-        reasons.append(f"{n} shared distinctive tokens covering "
-                       f"{coeff:.0%} of the smaller unit's features")
-    blocks = []
-    ov = 0
-    if deep or reasons:
-        blocks = overlap_blocks(t, c)
-        ov = sum(b["lines"] for b in blocks)
-        min_lines = min(t.end - t.start + 1, c.end - c.start + 1)
-        if ov >= OVERLAP_LINES or (ov >= OVERLAP_MIN and ov >= 0.5 * min_lines):
-            reasons.append(f"{ov} matching normalized lines")
+def _compose_match(cand: Unit, target: Unit, evidence: list) -> dict:
+    tokens = next((e.tokens for e in evidence if e.tokens), [])
+    blocks = next((e.blocks for e in evidence if e.blocks), [])
+    coeff = (len(tokens) / min(len(target.feats), len(cand.feats))
+             if target.feats and cand.feats else 0.0)
     return {
-        "file": c.path, "unit": c.qualname, "span": [c.start, c.end],
-        "exact_structural_dup": c.fp == t.fp,
-        "shared": shared[:8], "shared_count": n,
+        "file": cand.path, "unit": cand.qualname, "span": [cand.start, cand.end],
+        "exact_structural_dup": any(e.detector == "fingerprint" for e in evidence),
+        "reasons": [e.reason for e in evidence],
+        "evidence": [{"detector": e.detector, "reason": e.reason,
+                      "tokens": e.tokens, "blocks": e.blocks} for e in evidence],
+        "shared": tokens, "shared_count": len(tokens),
         "overlap_coeff": round(coeff, 3),
-        "overlap_lines": ov, "overlap": blocks,
-        "reasons": reasons,
+        "overlap_lines": sum(b["lines"] for b in blocks), "overlap": blocks,
     }
 
 
-def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list[dict]:
+def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3,
+                  detectors: list | None = None) -> list[dict]:
     """Screen each target unit against the corpus. One report dict per unit;
     report["action"] is "review", "pass", or "trivial"."""
-    df = _feature_df(corpus)
-    fp_index: dict[str, list[Unit]] = {}
-    for c in corpus:
-        fp_index.setdefault(c.fp, []).append(c)
+    dets = load_enabled() if detectors is None else detectors
+    for d in dets:
+        d.prepare(corpus)
 
     reports = []
     for t in targets:
@@ -2777,22 +3128,23 @@ def score_targets(targets: list[Unit], corpus: list[Unit], top: int = 3) -> list
         def is_self(c: Unit) -> bool:
             return c is t or (c.path == t.path and c.start == t.start and c.end == t.end)
 
-        # rank every candidate by cheap set arithmetic; no similarity model
         ranked = sorted(
-            (c for c in corpus if c.scoreable and not is_self(c)),
-            key=lambda c: (-(len(_distinctive_shared(t, c, df))
-                            + (100 if c.fp == t.fp else 0)),
-                           c.path, c.start),
+            ((sum(d.affinity(t, c) for d in dets), c)
+             for c in corpus if c.scoreable and not is_self(c)),
+            key=lambda ac: (-ac[0], ac[1].path, ac[1].start),
         )
         matches = []
-        for i, c in enumerate(ranked[:_TOP_EXAMINE]):
-            m = _examine(t, c, df, deep=i < top)
-            if m["reasons"] or (i < top and (m["shared_count"] or m["overlap_lines"])):
-                matches.append(m)
-        matches.sort(key=lambda m: (-len(m["reasons"]), -m["shared_count"], -m["overlap_lines"]))
+        for affinity, c in ranked[:_TOP_EXAMINE]:
+            if not affinity:
+                break  # ranked list: nothing below has any detector's interest
+            evidence = [e for d in dets if (e := d.examine(t, c)) is not None]
+            if evidence:
+                matches.append(_compose_match(c, t, evidence))
+        matches.sort(key=lambda m: (-len(m["reasons"]), -m["shared_count"],
+                                    -m["overlap_lines"]))
         report.update(
-            action="review" if any(m["reasons"] for m in matches) else "pass",
-            matches=matches[:max(top, sum(1 for m in matches if m["reasons"]))],
+            action="review" if matches else "pass",
+            matches=matches[:max(top, 1)],
         )
         reports.append(report)
     return reports
@@ -2934,7 +3286,7 @@ def scan_tree(root: Path, rules: IgnoreRules | None = None,
 
 ::file pyproject.toml
 ::lang toml
-::sha f1ea8d186a26
+::sha 10e1af8cfeab
 ::lines 17
 ::content 17
 [build-system]
@@ -2952,7 +3304,7 @@ license = { text = "MIT" }
 cm = "cm.cli:main"
 
 [tool.setuptools]
-packages = ["cm"]
+packages = ["cm", "cm.detectors"]
 
 ::endfile
 
@@ -3509,6 +3861,155 @@ class TestCmFileRoundTrip(unittest.TestCase):
         text = emit({"project": "x"}, self.result.records, include_content=False)
         _, files = parse(text)
         self.assertTrue(all(f.content is None for f in files))
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+::endfile
+
+::file tests/test_detectors.py
+::lang python
+::sha ea8c22e22457
+::lines 101
+::doc The tripwire's plugin surface: registry, config, and module isolation.
+::imports cm.detectors, cm.detectors.base, cm.detectors.fingerprint, cm.detectors.lines, cm.detectors.tokens, cm.redundancy, pathlib, tempfile, tests.test_adversarial, tests.test_redundancy, unittest
+::unit class TestRegistryAndConfig @21-41 #bb425241
+::sig class TestRegistryAndConfig
+::unit method TestRegistryAndConfig.test_builtin_detectors_registered @22-23 #1e405909
+::sig test_builtin_detectors_registered(self)
+::keys ["REGISTRY", "assertLessEqual", "fingerprint", "lines", "set", "tokens"]
+::unit method TestRegistryAndConfig.test_config_toggles_per_repo @25-34 #52063586
+::sig test_config_toggles_per_repo(self)
+::keys ["Path", "TemporaryDirectory", "assertFalse", "assertIn", "assertNotIn", "assertTrue", "enabled_names", "fingerprint", "load_enabled", "name", "set_enabled", "tempfile", "tokens"]
+::unit method TestRegistryAndConfig.test_broken_config_means_all_enabled @36-41 #8effda28
+::sig test_broken_config_means_all_enabled(self)
+::keys [".cm", "Path", "TemporaryDirectory", "all", "assertTrue", "config.json", "enabled_names", "mkdir", "not json", "tempfile", "utf-8", "values", "write_text"]
+::unit class TestModuleIsolation @44-72 #f830dcb6
+::sig class TestModuleIsolation
+::unit method TestModuleIsolation.test_recursive_clone_is_the_tokens_detectors_catch @45-53 #837d91c8
+::sig test_recursive_clone_is_the_tokens_detectors_catch(self)
+::keys ["CLONE_RECURSIVE", "FingerprintDetector", "LineOverlapDetector", "SharedTokensDetector", "action", "assertEqual", "assertTrue", "clone.py", "corpus", "pass", "requires_review", "score_targets", "units_of"]
+::unit method TestModuleIsolation.test_pure_rename_is_the_fingerprint_detectors_catch @55-60 #ef444318
+::sig test_pure_rename_is_the_fingerprint_detectors_catch(self)
+::keys ["FingerprintDetector", "ORIGINAL", "PURE_RENAME", "a.py", "assertIn", "assertTrue", "clone.py", "fingerprint", "matches", "reasons", "requires_review", "score_targets", "units_of"]
+::unit method TestModuleIsolation.test_padded_clone_is_the_lines_detectors_catch @62-67 #a4e1d231
+::sig test_padded_clone_is_the_lines_detectors_catch(self)
+::keys ["LineOverlapDetector", "ORIGINAL", "PADDED_CLONE", "a.py", "assertIn", "assertTrue", "clone.py", "matches", "matching normalized lines", "reasons", "requires_review", "score_targets", "units_of"]
+::unit method TestModuleIsolation.test_all_disabled_means_everything_passes @69-72 #de23fd76
+::sig test_all_disabled_means_everything_passes(self)
+::keys ["ORIGINAL", "PURE_RENAME", "a.py", "action", "assertEqual", "clone.py", "pass", "score_targets", "units_of"]
+::unit class _ToyDetector @75-85 #841cd278
+::sig class _ToyDetector
+::doc Fires on every same-kind pair — exists to prove third-party drop-in.
+::unit method _ToyDetector.affinity @79-80 #a48dc54e
+::sig affinity(self, target, cand)
+::keys ["kind"]
+::unit method _ToyDetector.examine @82-85 #7fe6ad6e
+::sig examine(self, target, cand)
+::keys ["Evidence", "kind", "name", "toy detector fired"]
+::unit class TestCustomDetector @88-96 #4217ac4e
+::sig class TestCustomDetector
+::unit method TestCustomDetector.test_third_party_detector_composes @89-96 #1eb2d86e
+::sig test_third_party_detector_composes(self)
+::keys ["CLONE_RECURSIVE", "ORIGINAL", "_ToyDetector", "assertEqual", "assertTrue", "c.py", "detector", "evidence", "matches", "reason", "requires_review", "score_targets", "toy", "toy detector fired", "units_of", "x.py"]
+::content 101
+"""The tripwire's plugin surface: registry, config, and module isolation.
+
+The isolation tests are the point: each disguise class must be caught by
+exactly the detector built for it, and disabling that detector must let it
+through. That proves the module boundary is real, not decorative.
+"""
+import tempfile
+import unittest
+from pathlib import Path
+
+from cm.detectors import REGISTRY, enabled_names, load_enabled, set_enabled
+from cm.detectors.base import Detector, Evidence
+from cm.detectors.fingerprint import FingerprintDetector
+from cm.detectors.lines import LineOverlapDetector
+from cm.detectors.tokens import SharedTokensDetector
+from cm.redundancy import requires_review, score_targets
+from tests.test_adversarial import CLONE_RECURSIVE, corpus, units_of
+from tests.test_redundancy import ORIGINAL, PADDED_CLONE, PURE_RENAME
+
+
+class TestRegistryAndConfig(unittest.TestCase):
+    def test_builtin_detectors_registered(self):
+        self.assertLessEqual({"fingerprint", "tokens", "lines"}, set(REGISTRY))
+
+    def test_config_toggles_per_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertTrue(enabled_names(root)["tokens"])
+            set_enabled(root, {"tokens": False})
+            self.assertFalse(enabled_names(root)["tokens"])
+            self.assertTrue(enabled_names(root)["fingerprint"])
+            self.assertNotIn("tokens", [d.name for d in load_enabled(root)])
+            set_enabled(root, {"tokens": True})
+            self.assertIn("tokens", [d.name for d in load_enabled(root)])
+
+    def test_broken_config_means_all_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".cm").mkdir()
+            (root / ".cm" / "config.json").write_text("not json", encoding="utf-8")
+            self.assertTrue(all(enabled_names(root).values()))
+
+
+class TestModuleIsolation(unittest.TestCase):
+    def test_recursive_clone_is_the_tokens_detectors_catch(self):
+        targets = units_of("clone.py", CLONE_RECURSIVE)
+        [rep] = [r for r in score_targets(targets, corpus(),
+                                          detectors=[SharedTokensDetector()])]
+        self.assertTrue(requires_review(rep))
+        # without tokens, the other detectors must NOT claim this catch
+        [rep] = score_targets(targets, corpus(),
+                              detectors=[FingerprintDetector(), LineOverlapDetector()])
+        self.assertEqual(rep["action"], "pass")
+
+    def test_pure_rename_is_the_fingerprint_detectors_catch(self):
+        targets = units_of("clone.py", PURE_RENAME)
+        cps = units_of("a.py", ORIGINAL)
+        [rep] = score_targets(targets, cps, detectors=[FingerprintDetector()])
+        self.assertTrue(requires_review(rep))
+        self.assertIn("fingerprint", rep["matches"][0]["reasons"][0])
+
+    def test_padded_clone_is_the_lines_detectors_catch(self):
+        targets = units_of("clone.py", PADDED_CLONE)
+        cps = units_of("a.py", ORIGINAL)
+        [rep] = score_targets(targets, cps, detectors=[LineOverlapDetector()])
+        self.assertTrue(requires_review(rep))
+        self.assertIn("matching normalized lines", rep["matches"][0]["reasons"][0])
+
+    def test_all_disabled_means_everything_passes(self):
+        [rep] = score_targets(units_of("clone.py", PURE_RENAME),
+                              units_of("a.py", ORIGINAL), detectors=[])
+        self.assertEqual(rep["action"], "pass")
+
+
+class _ToyDetector(Detector):
+    """Fires on every same-kind pair — exists to prove third-party drop-in."""
+    name = "toy"
+
+    def affinity(self, target, cand):
+        return 1 if cand.kind == target.kind else 0
+
+    def examine(self, target, cand):
+        if cand.kind == target.kind:
+            return Evidence(self.name, "toy detector fired")
+        return None
+
+
+class TestCustomDetector(unittest.TestCase):
+    def test_third_party_detector_composes(self):
+        [rep] = score_targets(units_of("x.py", ORIGINAL),
+                              units_of("c.py", CLONE_RECURSIVE),
+                              detectors=[_ToyDetector()])
+        self.assertTrue(requires_review(rep))
+        ev = rep["matches"][0]["evidence"]
+        self.assertEqual(ev[0]["detector"], "toy")
+        self.assertEqual(ev[0]["reason"], "toy detector fired")
 
 
 if __name__ == "__main__":

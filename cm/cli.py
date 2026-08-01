@@ -10,6 +10,7 @@ from pathlib import Path
 from . import __version__
 from .cache import add_accepted, find_root, load_accepted, load_cache, save_cache
 from .cmfile import emit, parse
+from .detectors import REGISTRY, enabled_names, load_enabled, set_enabled
 from .extract import extract_units
 from .ignore import IgnoreRules
 from .model import Unit
@@ -128,7 +129,8 @@ def cmd_check(args) -> int:
         target_units.extend(rec.units)
 
     scoreables = [u for u in target_units if u.kind != "class"]
-    reports = score_targets(scoreables, corpus, top=args.top)
+    reports = score_targets(scoreables, corpus, top=args.top,
+                            detectors=load_enabled(root))
     counts = _summarize(reports)
 
     if args.json:
@@ -150,7 +152,7 @@ def cmd_audit(args) -> int:
     root = Path(args.path).resolve()
     result = scan_tree(root, cache=load_cache(root))
     units = result.all_units(scoreable_only=True)
-    reports = score_targets(units, units, top=args.top)
+    reports = score_targets(units, units, top=args.top, detectors=load_enabled(root))
     flagged = [r for r in reports if requires_review(r)]
     flagged.sort(key=lambda r: -max(
         (m["shared_count"] + m["overlap_lines"] for m in r["matches"]), default=0))
@@ -229,7 +231,8 @@ def _gate_run(root: Path, top: int, hook: bool) -> int:
             print(f"gate clean: no changed units{delta}; baseline refreshed")
         return 0
 
-    reports = score_targets(targets, result.all_units(scoreable_only=True), top=top)
+    reports = score_targets(targets, result.all_units(scoreable_only=True), top=top,
+                            detectors=load_enabled(root))
     blocking = _screen(reports, load_accepted(root))
 
     if blocking:
@@ -308,7 +311,7 @@ def _precheck(root: Path, abspath: Path, proposed: str, top: int) -> int:
     corpus = [u for r in result.records if r.path != rel
               for u in r.units if u.scoreable]
     corpus += [u for u in rec.units if u.scoreable]
-    reports = score_targets(targets, corpus, top=top)
+    reports = score_targets(targets, corpus, top=top, detectors=load_enabled(root))
     blocking = _screen(reports, load_accepted(root))
     if blocking:
         _print_block(
@@ -458,6 +461,29 @@ def cmd_init(args) -> int:
     return 0
 
 
+def cmd_detectors(args) -> int:
+    root = Path(args.root).resolve()
+    changes = {}
+    for name in args.enable:
+        changes[name] = True
+    for name in args.disable:
+        changes[name] = False
+    unknown = [n for n in changes if n not in REGISTRY]
+    if unknown:
+        print(f"error: unknown detector(s): {', '.join(unknown)} "
+              f"(known: {', '.join(REGISTRY)})", file=sys.stderr)
+        return 2
+    if changes:
+        set_enabled(root, changes)
+    enabled = enabled_names(root)
+    print(f"detectors for {root}:")
+    for name, cls in REGISTRY.items():
+        doc = (sys.modules[cls.__module__].__doc__ or "").strip().splitlines()
+        summary = doc[0] if doc else ""
+        print(f"  {'on ' if enabled[name] else 'OFF'}  {name:12} {summary}")
+    return 0
+
+
 def cmd_drift(args) -> int:
     cm_path = Path(args.cm)
     if not cm_path.is_file():
@@ -573,6 +599,12 @@ def main(argv=None) -> int:
     a.add_argument("--limit", type=int, default=20)
     a.add_argument("--json", action="store_true")
     a.set_defaults(fn=cmd_audit)
+
+    dt = sub.add_parser("detectors", help="list or toggle tripwire detectors for a repo")
+    dt.add_argument("--root", default=".")
+    dt.add_argument("--enable", nargs="*", default=[], metavar="NAME")
+    dt.add_argument("--disable", nargs="*", default=[], metavar="NAME")
+    dt.set_defaults(fn=cmd_detectors)
 
     d = sub.add_parser("drift", help="[experimental] context-vs-PROJECT.cm divergence")
     d.add_argument("manifest", help="file of section refs the context holds "

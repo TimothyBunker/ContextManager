@@ -41,6 +41,7 @@ cm build [path] [--full]     compile the tree -> PROJECT.cm (incremental by defa
 cm status [path]             is the baseline current? what changed since it?
 cm check <files> --root .    screen specific files against the tree
 cm audit [path]              pairwise resemblance audit of the whole tree
+cm detectors [--root .]      list or toggle tripwire detectors for a repo
 cm drift <manifest>          [experimental] context-vs-PROJECT.cm divergence
 ```
 
@@ -57,19 +58,28 @@ carry no identity. Module-level constants count for the units that reference
 them, because hoisting a literal into a named constant is a demonstrated
 disguise. Every feature is a string you can grep for in PROJECT.cm.
 
-A unit is flagged for review when any of four exact rules fires:
+The tripwire is a **detector registry** ([cm/detectors/](cm/detectors/)):
+each detector is a self-contained plugin that notices one kind of
+resemblance and emits Evidence; a unit is flagged when any enabled detector
+fires. Three ship by default:
 
-| rule | defeats |
-|---|---|
-| identical fingerprint (hash of the normalized body) | pure renames |
-| 3+ shared **distinctive** tokens with one unit | restructuring: loops→recursion, dispatch tables, helper splits |
-| 2+ shared distinctive tokens covering most of both feature sets | small units |
-| 10+ matching normalized lines with one unit | copied cores buried in padding |
+| detector | fires on | defeats |
+|---|---|---|
+| `fingerprint` | identical hash of the normalized body | pure renames |
+| `tokens` | 3+ shared **distinctive** tokens (or 2+ covering most of both feature sets) | restructuring: loops→recursion, dispatch tables, helper splits |
+| `lines` | 10+ matching normalized lines with one unit | copied cores buried in padding |
 
 "Distinctive" is decided by the corpus, not assumed: a token counts only if
 few units use it (document frequency), and language-universal vocabulary
 (builtins, stdlib names, `"utf-8"`) never counts regardless — you would not
 grep for `open` to find a specific function.
+
+Repos choose their detectors (`cm detectors --disable lines` writes
+`.cm/config.json`), and writing a new one is a single class implementing
+`prepare/affinity/examine` — see the contract in
+[cm/detectors/base.py](cm/detectors/base.py). Future evidence providers
+(behavioral probes, dataflow shapes, sketch vectors) are drop-ins here, not
+core changes.
 
 Every flag prints its evidence — the shared tokens and matching line spans —
 so the review starts with the proof in hand:

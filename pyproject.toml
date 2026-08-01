@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cm-compiler"
-version = "0.5.0"
+version = "0.6.0"
 description = "Compile a codebase into a context management artifact (PROJECT.cm) with information-theoretic redundancy checks."
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -13,4 +13,4 @@ license = { text = "MIT" }
 cm = "cm.cli:main"
 
 [tool.setuptools]
-packages = ["cm"]
+packages = ["cm", "cm.detectors"]
